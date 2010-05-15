@@ -89,7 +89,7 @@ englishString = "AAAAAAAAABBCCDDDDEEEEEEEEEEEEFFGGGHHIIIIIIIIIJKLLLLMMNNNNNN"
               ++ "OOOOOOOOPPQRRRRRRSSSSTTTTTTUUUUVVWWXYYZ" -- no blanks yet
 
 english :: Bag
-english =  listArray (0,length englishString - 1) englishString
+english =  listArray (0,(length englishString)-1) englishString
 
 standardText :: [String]
 standardText =  ["3W .. .. 2L .. .. .. 2W .. .. .. 2L .. .. 3W"
@@ -108,13 +108,18 @@ standardText =  ["3W .. .. 2L .. .. .. 2W .. .. .. 2L .. .. 3W"
                 ,".. 2W .. .. .. 3L .. .. .. 3L .. .. .. 2W .."
                 ,"3W .. .. 2L .. .. .. 2W .. .. .. 2L .. .. 3W"]
 
-textMuls :: [String] -> Char -> Array (Int,Int) Int
+type IntGrid a = Array (Int,Int) a
+textMuls :: [String] -> Char -> (IntGrid Int)
 textMuls grid c = listsArray $ map stringMul grid
     where
       stringMul = map parseMul . words
       parseMul ['2',x] = if x == c then 2 else 1
       parseMul ['3',x] = if x == c then 3 else 1
       parseMul _       = 1
+
+gridSize :: IntGrid a -> (Int,Int)
+gridSize grid = (xmax+1,ymax+1)
+    where (_,(xmax,ymax)) = bounds grid
 
 listsArray :: [[a]] -> Array (Int,Int) a
 listsArray grid = listArray bounds (concat grid)
@@ -125,12 +130,27 @@ listsArray grid = listArray bounds (concat grid)
                (r:rs) -> length r
                _      -> 0
 
-data Layout = Layout (Array (Int,Int) Int) (Array (Int,Int) Int)
-layoutXWS (Layout xws _) = xws
-layoutXLS (Layout _ xls) = xls
+splitAtEach :: Int -> [a] -> [[a]]
+splitAtEach n []  = []
+splitAtEach n abc = a:splitAtEach n bc
+    where (a,bc) = splitAt n abc
 
+data Layout = Layout (IntGrid Int) (IntGrid Int) (Int,Int)
+layoutXWS   (Layout xws _ s) = xws
+layoutXLS   (Layout _ xls s) = xls
+layoutStart (Layout _ _   s) = s
+
+both :: (a -> b) -> (a,a) -> (b,b)
+both f (x,y) = (f x, f y)
+  
 textLayout :: [String] -> Layout
-textLayout grid = Layout (textMuls grid 'W') (textMuls grid 'L')
+textLayout grid = Layout xws xls start
+    where
+      xws = (textMuls grid 'W')
+      xls = (textMuls grid 'L')
+      start = center (bounds xws)
+      center (_,max) = both halve max
+      halve x = div (x+1) 2
 
 standard :: Layout
 standard = textLayout standardText
@@ -150,6 +170,20 @@ drawRack bag g = drawTiles 7 []
             then drawTiles n drawn
             else return (tile : rest)
 
+labelTextGrid :: [String] -> [String]
+labelTextGrid grid = grid --FIXME
+
+layoutTextGrid :: Layout -> [String]
+layoutTextGrid layout = splitAtEach cols grid
+    where
+      xws = layoutXWS layout
+      intGrid = elems xws
+      grid = map intToDigit intGrid
+      (rows,cols) = gridSize xws
+
+labelLayout :: Layout -> [String]
+labelLayout layout = labelTextGrid (layoutTextGrid layout)
+
 -- main :: IO ()
 -- main = do
 --   putStrLn "Loading..."
@@ -162,4 +196,4 @@ drawRack bag g = drawTiles 7 []
 --   doRack
 
 main :: IO ()
-main = print $ textMuls standardText 'W'
+main = putStr $ unlines $ layoutTextGrid standard
