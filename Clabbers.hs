@@ -88,8 +88,14 @@ englishString :: String
 englishString = "AAAAAAAAABBCCDDDDEEEEEEEEEEEEFFGGGHHIIIIIIIIIJKLLLLMMNNNNNN"
               ++ "OOOOOOOOPPQRRRRRRSSSSTTTTTTUUUUVVWWXYYZ" -- no blanks yet
 
+stringBounds :: String -> (Int,Int)
+stringBounds s = (0,len-1) where len = length s
+
+stringArray :: String -> Array Int Char
+stringArray s = listArray (stringBounds s) s
+
 english :: Bag
-english =  listArray (0,(length englishString)-1) englishString
+english = stringArray englishString
 
 standardText :: [String]
 standardText =  ["3W .. .. 2L .. .. .. 2W .. .. .. 2L .. .. 3W"
@@ -108,7 +114,7 @@ standardText =  ["3W .. .. 2L .. .. .. 2W .. .. .. 2L .. .. 3W"
                 ,".. 2W .. .. .. 3L .. .. .. 3L .. .. .. 2W .."
                 ,"3W .. .. 2L .. .. .. 2W .. .. .. 2L .. .. 3W"]
 
-type IntGrid a = Array (Int,Int) a
+type IntGrid = Array (Int,Int)
 textMuls :: [String] -> Char -> (IntGrid Int)
 textMuls grid c = listsArray $ map stringMul grid
     where
@@ -146,11 +152,9 @@ both f (x,y) = (f x, f y)
 textLayout :: [String] -> Layout
 textLayout grid = Layout xws xls start
     where
-      xws = (textMuls grid 'W')
-      xls = (textMuls grid 'L')
-      start = center (bounds xws)
-      center (_,max) = both halve max
-      halve x = div (x+1) 2
+      xws = textMuls grid 'W'
+      xls = textMuls grid 'L'
+      start = both (`div` 2) (gridSize xws)
 
 standard :: Layout
 standard = textLayout standardText
@@ -182,7 +186,7 @@ layoutTextGrid layout = splitAtEach cols grid
       (rows,cols) = gridSize xws
 
 labelLayout :: Layout -> [String]
-labelLayout layout = labelTextGrid (layoutTextGrid layout)
+labelLayout = labelTextGrid . layoutTextGrid
 
 -- main :: IO ()
 -- main = do
@@ -197,3 +201,4 @@ labelLayout layout = labelTextGrid (layoutTextGrid layout)
 
 main :: IO ()
 main = putStr $ unlines $ layoutTextGrid standard
+--main = print $ layoutStart standard
