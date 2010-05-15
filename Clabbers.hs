@@ -7,7 +7,7 @@ import Data.Array.ST
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
 import Data.Char
-import Data.List (map, sortBy, zip)
+import Data.List (map, sortBy, zip, intersperse)
 import qualified Data.List as List
 import Data.Map (Map, fromList)
 import qualified Data.Map as Map
@@ -174,19 +174,31 @@ drawRack bag g = drawTiles 7 []
             then drawTiles n drawn
             else return (tile : rest)
 
-labelTextGrid :: [String] -> [String]
-labelTextGrid grid = grid --FIXME
+spaceOut :: [String] -> [String]
+spaceOut = map (intersperse ' ')
 
-layoutTextGrid :: Layout -> [String]
-layoutTextGrid layout = splitAtEach cols grid
+labelTextGrid :: [String] -> [String]
+labelTextGrid grid = spaceOut grid
+
+layoutPremiumGrids :: Layout -> ([[Int]],[[Int]])
+layoutPremiumGrids layout = both (splitAtEach cols) (both elems (xws,xls))
     where
       xws = layoutXWS layout
-      intGrid = elems xws
-      grid = map intToDigit intGrid
+      xls = layoutXLS layout
       (rows,cols) = gridSize xws
 
+premiumsTextGrid :: ([[Int]],[[Int]]) -> [String]
+premiumsTextGrid grid = uncurry (zipWith rowString) grid
+    where
+      rowString xws xls = zipWith square xws xls
+      square 3 1 = '='
+      square 2 1 = '-'
+      square 1 3 = '"'
+      square 1 2 = '\''
+      square _ _ = '.'
+
 labelLayout :: Layout -> [String]
-labelLayout = labelTextGrid . layoutTextGrid
+labelLayout layout = labelTextGrid (premiumsTextGrid (layoutPremiumGrids layout))
 
 -- main :: IO ()
 -- main = do
@@ -200,5 +212,5 @@ labelLayout = labelTextGrid . layoutTextGrid
 --   doRack
 
 main :: IO ()
-main = putStr $ unlines $ layoutTextGrid standard
+main = putStr $ unlines $ labelLayout standard
 --main = print $ layoutStart standard
