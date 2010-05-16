@@ -264,12 +264,7 @@ readMove lexicon s = case parse of
       parse = case (words s) of
                 (pos:[letters]) -> Just (readLetters letters,readPos pos)
                 _               -> Nothing
-      readLetters []     = Just []
-      readLetters (x:xs) = case (p,ps) of
-                             (Just p',Just ps') -> Just (p':ps')
-                             _                  -> Nothing
-          where p = Map.lookup x (lexiconPrimes lexicon)
-                ps = readLetters xs
+      readLetters = safeLookupPrimes lexicon
       readPos pos = case (splitPos pos) of
                       Just (sq,dir) -> Just (readSq sq,dir)
                       _             -> Nothing
@@ -283,6 +278,22 @@ readMove lexicon s = case parse of
                            else Nothing
           where lower = toLower alpha
 
+lookupLetters :: Lexicon -> [Integer] -> String
+lookupLetters lexicon = map lookup
+    where lookup p = unsafeLookup p (lexiconLetters lexicon)
+
+safeLookupPrimes :: Lexicon -> String -> Maybe [Integer]
+safeLookupPrimes _       []     = Just []
+safeLookupPrimes lexicon (x:xs) = case (p,ps) of
+                                    (Just p',Just ps') -> Just (p':ps')
+                                    _                  -> Nothing
+    where p = Map.lookup x (lexiconPrimes lexicon)
+          ps = safeLookupPrimes lexicon xs
+
+lookupPrimes :: Lexicon -> String -> [Integer]
+lookupPrimes lexicon = map lookup
+    where lookup letter = unsafeLookup letter (lexiconPrimes lexicon)
+
 showMove :: Lexicon -> Move -> String
 showMove lexicon (Move ps (row,col) dir) = pos ++ " " ++ letters
     where
@@ -291,8 +302,7 @@ showMove lexicon (Move ps (row,col) dir) = pos ++ " " ++ letters
               Down   -> alpha ++ num
       num = show (row+1)
       alpha = [chr (col+ord 'a')]
-      letters = map lookup ps
-      lookup p = unsafeLookup p (lexiconLetters lexicon)
+      letters = lookupLetters lexicon ps
 
 makeMove :: Board -> Move -> Board
 makeMove (Board _ grid) (Move word pos dir) = Board False grid'
@@ -304,6 +314,14 @@ makeMove (Board _ grid) (Move word pos dir) = Board False grid'
                      Across -> second
       makeAssoc letter delta = (pos',letter)
           where pos' = coordMover (+ delta) pos
+
+type Rack = [Integer]
+
+readRack :: Lexicon -> String -> Maybe Rack
+readRack = safeLookupPrimes
+
+showRack :: Lexicon -> Rack -> String
+showRack = lookupLetters
 
 -- main :: IO ()
 -- main = do
@@ -327,3 +345,11 @@ main = do
   let board' = makeMove board move
   putStr $ unlines $ labelBoard standard twl board'
 
+-- main :: IO ()
+-- main = do
+--   putStrLn "Loading..."
+--   twl <- lexiconFromFile twlFile
+--   putStrLn "Loaded TWL."
+--   let rack = fromJust $ readRack twl "AEINRST"
+--   --let rack = showRack twl [7,2,5,13,11,3,17]
+--   print rack
