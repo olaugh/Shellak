@@ -127,14 +127,19 @@ gridSize :: IntGrid a -> (Int,Int)
 gridSize grid = (xmax+1,ymax+1)
     where (_,(xmax,ymax)) = bounds grid
 
-listsArray :: [[a]] -> Array (Int,Int) a
-listsArray grid = listArray bounds (concat grid)
+textGridSize :: [[a]] -> (Int,Int)
+textGridSize grid = (rows,cols)
     where
-      bounds = ((0,0),(rows-1,cols-1))
       rows = length grid
       cols = case grid of 
                (r:rs) -> length r
                _      -> 0
+
+listsArray :: [[a]] -> Array (Int,Int) a
+listsArray grid = listArray bounds (concat grid)
+    where
+      bounds = ((0,0),(rows-1,cols-1))
+      (rows,cols) = textGridSize grid
 
 splitAtEach :: Int -> [a] -> [[a]]
 splitAtEach n []  = []
@@ -174,11 +179,19 @@ drawRack bag g = drawTiles 7 []
             then drawTiles n drawn
             else return (tile : rest)
 
-spaceOut :: [String] -> [String]
-spaceOut = map (intersperse ' ')
+spaceOut :: String -> String
+spaceOut = intersperse ' '
 
-labelTextGrid :: [String] -> [String]
-labelTextGrid grid = spaceOut grid
+prettifyGrid :: [String] -> [String]
+prettifyGrid grid = [letters,line] ++ numbers ++ [line,letters]
+    where
+      (rows,cols) = textGridSize grid
+      indent s = "   " ++ s ++ " "
+      letters = indent $ spaceOut $ (take cols ['a'..])
+      line = indent $ replicate (cols*2-1) '-'
+      numbers = zipWith numberRow [1..] grid
+      numberRow n row = pad (show n) ++ "|" ++ spaceOut row ++ "|"
+      pad s = replicate (2-length s) ' ' ++ s
 
 layoutPremiumGrids :: Layout -> ([[Int]],[[Int]])
 layoutPremiumGrids layout = both (splitAtEach cols) (both elems (xws,xls))
@@ -195,10 +208,10 @@ premiumsTextGrid grid = uncurry (zipWith rowString) grid
       square 2 1 = '-'
       square 1 3 = '"'
       square 1 2 = '\''
-      square _ _ = '.'
+      square _ _ = ' '
 
 labelLayout :: Layout -> [String]
-labelLayout = labelTextGrid . premiumsTextGrid . layoutPremiumGrids
+labelLayout = prettifyGrid . premiumsTextGrid . layoutPremiumGrids
 
 -- main :: IO ()
 -- main = do
