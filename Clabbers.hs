@@ -187,7 +187,7 @@ prettifyGrid grid = [letters,line] ++ numbers ++ [line,letters]
     where
       (rows,cols) = textGridSize grid
       indent s = "   " ++ s ++ " "
-      letters = indent $ spaceOut $ (take cols ['a'..])
+      letters = indent $ spaceOut $ take cols ['a'..]
       line = indent $ replicate (cols*2-1) '-'
       numbers = zipWith numberRow [1..] grid
       numberRow n row = pad (show n) ++ "|" ++ spaceOut row ++ "|"
