@@ -250,9 +250,6 @@ labelBoard layout lexicon board = prettifyGrid bg
       premiums = premiumsTextGrid (layoutPremiumGrids layout)
       letters = letterGrid lexicon board
 
-butLast :: [a] -> [a]
-butLast x = reverse $ tail $ reverse x
-
 isAsciiAlpha :: Char -> Bool
 isAsciiAlpha c = isAlpha c && isAscii c
 
@@ -279,7 +276,7 @@ readMove lexicon s = case parse of
       splitPos pos = if isAsciiAlpha (head pos) then
                          Just ((tail pos, head pos), Down)
                      else if isAsciiAlpha (last pos) then
-                              Just ((butLast pos, last pos), Across)
+                              Just ((init pos, last pos), Across)
                           else Nothing
       readSq (num,alpha) = if not (null num) && all isDigit num then
                                Just (-1+read num::Int,ord lower-ord 'a')
