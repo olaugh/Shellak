@@ -12,7 +12,7 @@ import qualified Data.List as List
 import Data.Map (Map, fromList)
 import qualified Data.Map as Map
 import Data.Maybe
-import Data.Numbers.Primes
+import Data.Numbers.Primes as Primes
 import Data.Ord (comparing)
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -44,7 +44,7 @@ letterPrimesFromWordFile file = do
   let sorted = map fst $ reverse $ sortBy (comparing snd) counts
   let ascii = filter isAscii sorted
   let letters = filter isUpper ascii
-  let assocs = zip letters primes
+  let assocs = zip letters Primes.primes
   return $ fromList assocs
 
 unsafeLookup :: (Ord k) => k -> Map k a -> a
@@ -65,10 +65,17 @@ wordProductIn cs = stringWordProduct cs . lexiconPrimes
 wordsetFromWords :: [ByteString] -> Map Char Integer -> Set Integer
 wordsetFromWords words ps = Set.fromList $ map (\x -> wordProduct x ps) words
 
+swap :: (a,b) -> (b,a)
+swap (a,b) = (b,a)
+
+inverseMap :: Ord b => Map a b -> Map b a
+inverseMap x = fromList (map swap (Map.assocs x))
+
 data Lexicon = Lexicon (Map Char Integer) [ByteString] (Set Integer)
-lexiconPrimes (Lexicon ps _     _  ) = ps
-lexiconWords  (Lexicon _  words _  ) = words
-lexiconSet    (Lexicon _  _     set) = set
+lexiconPrimes  (Lexicon ps _     _  ) = ps
+lexiconWords   (Lexicon _  words _  ) = words
+lexiconSet     (Lexicon _  _     set) = set
+lexiconLetters x                      = inverseMap (lexiconPrimes x)
 
 lexiconFromFile :: FilePath -> IO (Lexicon)
 lexiconFromFile file = do
@@ -146,6 +153,13 @@ splitAtEach n []  = []
 splitAtEach n abc = a:splitAtEach n bc
     where (a,bc) = splitAt n abc
 
+data Board = Board Bool (IntGrid Integer)
+boardIsEmpty (Board empty _      ) = empty
+boardPrimes  (Board _      primes) = primes
+
+emptyBoard :: Layout -> Board
+emptyBoard layout = Board True (listArray (bounds (layoutXWS layout)) (repeat 0))
+
 data Layout = Layout (IntGrid Int) (IntGrid Int) (Int,Int)
 layoutXWS   (Layout xws _ s) = xws
 layoutXLS   (Layout _ xls s) = xls
@@ -213,6 +227,29 @@ premiumsTextGrid grid = uncurry (zipWith rowString) grid
 labelLayout :: Layout -> [String]
 labelLayout = prettifyGrid . premiumsTextGrid . layoutPremiumGrids
 
+letterGrid :: Lexicon -> Board -> [String]
+letterGrid lexicon board = splitAtEach cols letters
+    where
+      primes = (boardPrimes board)
+      letters = map lookup (elems primes)
+      lookup 0 = ' '
+      lookup p = unsafeLookup p (lexiconLetters lexicon)
+      (rows,cols) = gridSize primes
+
+boardGrid :: [String] -> [String] -> [String]
+boardGrid = zipWith rowString
+    where
+      rowString = zipWith square
+      square x ' ' = x -- empty  -> premium
+      square _ x   = x -- letter -> letter
+
+labelBoard :: Layout -> Lexicon -> Board -> [String]
+labelBoard layout lexicon board = prettifyGrid bg
+    where
+      bg = boardGrid premiums letters
+      premiums = premiumsTextGrid (layoutPremiumGrids layout)
+      letters = letterGrid lexicon board
+
 -- main :: IO ()
 -- main = do
 --   putStrLn "Loading..."
@@ -224,6 +261,13 @@ labelLayout = prettifyGrid . premiumsTextGrid . layoutPremiumGrids
 --                   doRack
 --   doRack
 
+--main :: IO ()
+--main = putStr $ unlines $ labelLayout standard
+
 main :: IO ()
-main = putStr $ unlines $ labelLayout standard
---main = print $ layoutStart standard
+main = do
+  putStrLn "Loading..."
+  twl <- lexiconFromFile twlFile
+  putStrLn "Loaded TWL."
+  putStr $ unlines $ labelBoard standard twl empty
+      where empty = emptyBoard standard
