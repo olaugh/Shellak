@@ -250,6 +250,53 @@ labelBoard layout lexicon board = prettifyGrid bg
       premiums = premiumsTextGrid (layoutPremiumGrids layout)
       letters = letterGrid lexicon board
 
+butLast :: [a] -> [a]
+butLast x = reverse $ tail $ reverse x
+
+isAsciiAlpha :: Char -> Bool
+isAsciiAlpha c = isAlpha c && isAscii c
+
+data Direction = Down | Across
+data Move = Move [Integer] (Int,Int) Direction
+
+readMove :: Lexicon -> String -> Maybe Move
+readMove lexicon s = case parse of
+                       Just (Just ps,Just (Just sq,dir)) -> Just $ Move ps sq dir
+                       _                                 -> Nothing
+    where
+      parse = case (words s) of
+                (pos:[letters]) -> Just (readLetters letters,readPos pos)
+                _               -> Nothing
+      readLetters []     = Just []
+      readLetters (x:xs) = case (p,ps) of
+                             (Just p',Just ps') -> Just (p':ps')
+                             _                  -> Nothing
+          where p = Map.lookup x (lexiconPrimes lexicon)
+                ps = readLetters xs
+      readPos pos = case (splitPos pos) of
+                      Just (sq,dir) -> Just (readSq sq,dir)
+                      _             -> Nothing
+      splitPos pos = if isAsciiAlpha (head pos) then
+                         Just ((tail pos, head pos), Down)
+                     else if isAsciiAlpha (last pos) then
+                              Just ((butLast pos, last pos), Across)
+                          else Nothing
+      readSq (num,alpha) = if not (null num) && all isDigit num then
+                               Just (-1+read num::Int,ord lower-ord 'a')
+                           else Nothing
+          where lower = toLower alpha
+
+showMove :: Lexicon -> Move -> String
+showMove lexicon (Move ps (row,col) dir) = pos ++ " " ++ letters
+    where
+      pos = case dir of
+              Across -> num ++ alpha
+              Down   -> alpha ++ num
+      num = show (row+1)
+      alpha = [chr (col+ord 'a')]
+      letters = map lookup ps
+      lookup p = unsafeLookup p (lexiconLetters lexicon)
+
 -- main :: IO ()
 -- main = do
 --   putStrLn "Loading..."
@@ -261,13 +308,23 @@ labelBoard layout lexicon board = prettifyGrid bg
 --                   doRack
 --   doRack
 
---main :: IO ()
---main = putStr $ unlines $ labelLayout standard
+-- main :: IO ()
+-- main = do
+--   putStrLn "Loading..."
+--   twl <- lexiconFromFile twlFile
+--   putStrLn "Loaded TWL."
+--   putStr $ unlines $ labelBoard standard twl empty
+--       where empty = emptyBoard standard
 
 main :: IO ()
 main = do
   putStrLn "Loading..."
   twl <- lexiconFromFile twlFile
   putStrLn "Loaded TWL."
-  putStr $ unlines $ labelBoard standard twl empty
-      where empty = emptyBoard standard
+  let moveString = "8D ZOOID"
+  let move = readMove twl moveString
+  let moveString' = case move of
+                      Nothing -> "invalid move"
+                      Just m  -> showMove twl m
+  print moveString'
+  
