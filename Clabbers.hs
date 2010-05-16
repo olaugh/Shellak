@@ -294,6 +294,17 @@ showMove lexicon (Move ps (row,col) dir) = pos ++ " " ++ letters
       letters = map lookup ps
       lookup p = unsafeLookup p (lexiconLetters lexicon)
 
+makeMove :: Board -> Move -> Board
+makeMove (Board _ grid) (Move word pos dir) = Board False grid'
+    where
+      grid' = grid // assocs
+      assocs = zipWith makeAssoc word [0..]
+      coordMover = case dir of
+                     Down   -> first
+                     Across -> second
+      makeAssoc letter delta = (pos',letter)
+          where pos' = coordMover (+ delta) pos
+
 -- main :: IO ()
 -- main = do
 --   putStrLn "Loading..."
@@ -305,23 +316,14 @@ showMove lexicon (Move ps (row,col) dir) = pos ++ " " ++ letters
 --                   doRack
 --   doRack
 
--- main :: IO ()
--- main = do
---   putStrLn "Loading..."
---   twl <- lexiconFromFile twlFile
---   putStrLn "Loaded TWL."
---   putStr $ unlines $ labelBoard standard twl empty
---       where empty = emptyBoard standard
-
 main :: IO ()
 main = do
   putStrLn "Loading..."
   twl <- lexiconFromFile twlFile
   putStrLn "Loaded TWL."
   let moveString = "8D ZOOID"
-  let move = readMove twl moveString
-  let moveString' = case move of
-                      Nothing -> "invalid move"
-                      Just m  -> showMove twl m
-  print moveString'
-  
+  let move = fromJust $ readMove twl moveString
+  let board = emptyBoard standard
+  let board' = makeMove board move
+  putStr $ unlines $ labelBoard standard twl board'
+
