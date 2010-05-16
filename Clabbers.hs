@@ -190,7 +190,7 @@ layoutPremiumGrids layout = both (splitAtEach cols) (both elems (xws,xls))
 premiumsTextGrid :: ([[Int]],[[Int]]) -> [String]
 premiumsTextGrid grid = uncurry (zipWith rowString) grid
     where
-      rowString xws xls = zipWith square xws xls
+      rowString = zipWith square
       square 3 1 = '='
       square 2 1 = '-'
       square 1 3 = '"'
@@ -198,7 +198,7 @@ premiumsTextGrid grid = uncurry (zipWith rowString) grid
       square _ _ = '.'
 
 labelLayout :: Layout -> [String]
-labelLayout layout = labelTextGrid (premiumsTextGrid (layoutPremiumGrids layout))
+labelLayout = labelTextGrid . premiumsTextGrid . layoutPremiumGrids
 
 -- main :: IO ()
 -- main = do
