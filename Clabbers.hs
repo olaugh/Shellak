@@ -69,13 +69,13 @@ swap :: (a,b) -> (b,a)
 swap (a,b) = (b,a)
 
 inverseMap :: Ord b => Map a b -> Map b a
-inverseMap x = fromList (map swap (Map.assocs x))
+inverseMap = fromList . map swap . Map.assocs
 
 data Lexicon = Lexicon (Map Char Integer) [ByteString] (Set Integer)
 lexiconPrimes  (Lexicon ps _     _  ) = ps
 lexiconWords   (Lexicon _  words _  ) = words
 lexiconSet     (Lexicon _  _     set) = set
-lexiconLetters x                      = inverseMap (lexiconPrimes x)
+lexiconLetters                        = inverseMap . lexiconPrimes
 
 lexiconFromFile :: FilePath -> IO (Lexicon)
 lexiconFromFile file = do
@@ -230,7 +230,7 @@ labelLayout = prettifyGrid . premiumsTextGrid . layoutPremiumGrids
 letterGrid :: Lexicon -> Board -> [String]
 letterGrid lexicon board = splitAtEach cols letters
     where
-      primes = (boardPrimes board)
+      primes = boardPrimes board
       letters = map lookup (elems primes)
       lookup 0 = ' '
       lookup p = unsafeLookup p (lexiconLetters lexicon)
