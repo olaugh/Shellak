@@ -1,3 +1,16 @@
+-------------------------------------------------------------------
+-- |
+-- Copyright   :  (c) John O'Laughlin 2010
+-- License     :  GPL2
+--
+-- Maintainer  : olaughlin@gmail.com
+-- Stability   : unstable
+-- Portability : ?
+--
+-- shellak, a crossword game AI
+--
+-------------------------------------------------------------------
+
 import Control.Arrow
 import Control.Monad
 import Control.Monad.ST
@@ -25,7 +38,7 @@ twlFile = "/home/john/scrabble/twl.txt"
 freqs :: FilePath -> IO [(Char,Int)]
 freqs file = do
   content <- B.readFile file
-  let !counts = runST (runCount content)
+  let counts = runST (runCount content)
   return (assocs counts)
     where
       doCount b a i = if i < B.length b then
@@ -82,11 +95,11 @@ lexiconFromFile file = do
   letterPrimes <- letterPrimesFromWordFile file
   contents <- B.readFile file
   let words = B.lines contents
-  let !wordset = wordsetFromWords words letterPrimes
+  let wordset = wordsetFromWords words letterPrimes
   return $ Lexicon letterPrimes words wordset
 
-isGoodIn :: String -> Lexicon -> Bool
-isGoodIn word lex = Set.member (wordProductIn word lex) (lexiconSet lex)
+isGoodIn :: Lexicon -> [Integer] -> Bool
+isGoodIn lex word = Set.member (product word) (lexiconSet lex)
 
 type Tile = Char
 type Bag = Array Int Char
@@ -322,6 +335,40 @@ readRack = safeLookupPrimes
 
 showRack :: Lexicon -> Rack -> String
 showRack = lookupLetters
+
+-- topOpeners :: Lexicon -> Layout -> Board -> Rack -> Move
+-- topOpeners lexicon layout board rack = foldr improve [] [7,6..2]
+--     where
+--       improve tops n = improveC tops $ choose (length rack) n
+--       improveC tops combo = case next combo of
+--                               Nothing -> tops'
+--                               Just c  -> improveC tops' c
+--           where tops' = if isGoodIn lexicon word then
+--                             improveP tops $ permute (size combo)
+--                         else tops
+--                 word = applyC rack c
+--       improveP tops perm = case next perm of
+--                              Nothing -> tops'
+--                              Just p  -> improveP tops' p
+--           where tops' = foldr improveCol tops [min..max]
+--                 min = (fst max)-(size p)
+--                 max = snd (layoutStart layout)
+--       improveCol tops col = tops'
+--           where score = scoreOpener layout tileScores board move
+--                 move = Move word (row,col) Across
+--                 word = applyP rack p
+--                 row = fst (layoutStart layout)
+
+-- scoreOpener :: Layout -> Map Integer Int -> Board -> Move -> Int
+-- scoreOpener layout tileScores board move = score
+--     where
+--       score = mul*(sum letterScores)+bonus
+--       mul = product $ map (muls !) squares
+
+-- topMoves :: Lexicon -> Layout -> Board -> Rack -> [Move]
+-- topMoves lexicon board rack = 
+--     if boardIsEmpty board then topOpeners lexicon layout board rack
+--     else fail "can't yet find moves on nonempty boards"
 
 -- main :: IO ()
 -- main = do
