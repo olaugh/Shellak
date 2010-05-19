@@ -30,6 +30,7 @@ import Data.Ord (comparing)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import System.Random.Mersenne
+import qualified Math.Combinatorics.Multiset as Multi
 
 twlFile :: FilePath
 --twlFile = "/Users/jolaughlin/scrabble/twl.txt"
@@ -104,18 +105,20 @@ isGoodIn lex word = Set.member (product word) (lexiconSet lex)
 type Tile = Char
 type Bag = Array Int Char
 
-englishString :: String
-englishString = "AAAAAAAAABBCCDDDDEEEEEEEEEEEEFFGGGHHIIIIIIIIIJKLLLLMMNNNNNN"
-              ++ "OOOOOOOOPPQRRRRRRSSSSTTTTTTUUUUVVWWXYYZ" -- no blanks yet
+data TileDist = TileDist (Map Integer Int)
+tileScores (TileDist scores) = scores
 
-stringBounds :: String -> (Int,Int)
-stringBounds s = (0,len-1) where len = length s
+englishScores :: Lexicon -> (Map Integer Int)
+englishScores lexicon = fromList $ zip ps scores
+    where
+      ps = lookupPrimes lexicon ['A'..'Z']
+      scores = [1,3,3,2,1,4,2,4,1,8,5,1,3,1,1,3,10,1,1,1,1,4,4,8,1,10]
+
+listBounds :: [a] -> (Int,Int)
+listBounds s = (0,len-1) where len = length s
 
 stringArray :: String -> Array Int Char
-stringArray s = listArray (stringBounds s) s
-
-english :: Bag
-english = stringArray englishString
+stringArray s = listArray (listBounds s) s
 
 standardText :: [String]
 standardText =  ["3W .. .. 2L .. .. .. 2W .. .. .. 2L .. .. 3W"
@@ -359,11 +362,21 @@ showRack = lookupLetters
 --                 word = applyP rack p
 --                 row = fst (layoutStart layout)
 
--- scoreOpener :: Layout -> Map Integer Int -> Board -> Move -> Int
--- scoreOpener layout tileScores board move = score
---     where
---       score = mul*(sum letterScores)+bonus
---       mul = product $ map (muls !) squares
+scoreOpener :: Layout -> TileDist -> Board -> Move -> Int
+scoreOpener layout tileDist board (Move word sq dir) = score
+    where
+      score = mul*(sum letterScores)+bonus
+      mul = product $ map ((layoutXWS layout) !) squares
+      letterScores = zipWith (*) xls wordScores
+      xls = map ((layoutXLS layout) !) squares
+      wordScores = map (`unsafeLookup` scores) word
+      squares = map makeSq $ range $ listBounds word
+      coordMover = case dir of
+                     Down   -> first
+                     Across -> second
+      makeSq delta = coordMover (+ delta) sq
+      bonus = if length word == 7 then 50 else 0
+      scores = tileScores tileDist
 
 -- topMoves :: Lexicon -> Layout -> Board -> Rack -> [Move]
 -- topMoves lexicon board rack = 
@@ -390,6 +403,8 @@ main = do
   let move = fromJust $ readMove twl moveString
   let board = emptyBoard standard
   let board' = makeMove board move
+  let english = TileDist (englishScores twl)
+  print $ scoreOpener standard english board move
   putStr $ unlines $ labelBoard standard twl board'
 
 -- main :: IO ()
