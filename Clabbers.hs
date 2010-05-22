@@ -33,8 +33,7 @@ import System.Random.Mersenne
 import qualified Math.Combinatorics.Multiset as Multi
 
 twlFile :: FilePath
---twlFile = "/Users/jolaughlin/scrabble/twl.txt"
-twlFile = "/home/john/scrabble/twl.txt"
+twlFile = "data/lexica/twl.txt"
 
 freqs :: FilePath -> IO [(Char,Int)]
 freqs file = do
