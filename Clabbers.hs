@@ -1,7 +1,7 @@
 -------------------------------------------------------------------
 -- |
--- Copyright   :  (c) John O'Laughlin 2010
--- License     :  GPL2
+-- Copyright   : (c) John O'Laughlin 2010
+-- License     : GPL2
 --
 -- Maintainer  : olaughlin@gmail.com
 -- Stability   : unstable
@@ -30,6 +30,7 @@ import Data.Ord (comparing)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import System.Random.Mersenne
+import Math.Combinatorics.Multiset (Multiset, kSubsets, permutations, toList)
 import qualified Math.Combinatorics.Multiset as Multi
 
 twlFile :: FilePath
@@ -338,28 +339,42 @@ readRack = safeLookupPrimes
 showRack :: Lexicon -> Rack -> String
 showRack = lookupLetters
 
--- topOpeners :: Lexicon -> Layout -> Board -> Rack -> Move
--- topOpeners lexicon layout board rack = foldr improve [] [7,6..2]
---     where
---       improve tops n = improveC tops $ choose (length rack) n
---       improveC tops combo = case next combo of
---                               Nothing -> tops'
---                               Just c  -> improveC tops' c
---           where tops' = if isGoodIn lexicon word then
---                             improveP tops $ permute (size combo)
---                         else tops
---                 word = applyC rack c
---       improveP tops perm = case next perm of
---                              Nothing -> tops'
---                              Just p  -> improveP tops' p
---           where tops' = foldr improveCol tops [min..max]
---                 min = (fst max)-(size p)
---                 max = snd (layoutStart layout)
---       improveCol tops col = tops'
---           where score = scoreOpener layout tileScores board move
---                 move = Move word (row,col) Across
---                 word = applyP rack p
---                 row = fst (layoutStart layout)
+-- maxes :: [Int] -> [Int]
+-- maxes xs = foldl improve [] xs
+--   where 
+--     improve :: [Int] -> Int -> [Int]
+--     improve tops x = case (compare x (best tops)) of
+--       GT -> [x]
+--       EQ -> (x:tops)
+--       LT -> tops
+--     best [] = -1000
+--     best (x:_) = x
+                                             
+topOpeners :: Lexicon -> Layout -> TileDist -> Board -> Rack -> [Move]
+topOpeners lexicon layout dist board rack = foldl improveLen [] [7,6..2]
+  where
+    improveLen :: [Move] -> Int -> [Move]
+    improveLen tops k = foldl (improveSet k) tops $ kSubsets k rackSet
+    rackSet = Multi.fromList rack
+    improveSet :: Int -> [Move] -> Multiset Integer -> [Move]
+    improveSet k tops set = if isGoodIn lexicon (toList set) then
+                              foldl (improveCol set) tops [min..max]
+                            else tops
+      where min = max-k+1
+            max = snd (layoutStart layout)
+    improveCol :: Multiset Integer -> [Move] -> Int -> [Move]
+    improveCol set tops col = foldl improvePerm tops $ permutations set
+      where improvePerm tops perm = tops'
+              where tops' = case compare score bestScore of
+                      GT -> [move]
+                      EQ -> (move:tops)
+                      LT -> tops
+                    move = Move perm (row,col) Across
+                    row = fst (layoutStart layout)
+                    score = scoreOpener layout dist board move
+                    bestScore = case tops of
+                      []    -> -1000
+                      (x:_) -> scoreOpener layout dist board x
 
 scoreOpener :: Layout -> TileDist -> Board -> Move -> Int
 scoreOpener layout tileDist board (Move word sq dir) = score
@@ -398,19 +413,14 @@ main = do
   putStrLn "Loading..."
   twl <- lexiconFromFile twlFile
   putStrLn "Loaded TWL."
-  let moveString = "8D ZOOID"
-  let move = fromJust $ readMove twl moveString
+  -- let moveString = "8D ZOOID"
+  -- let move = fromJust $ readMove twl moveString
+  -- let board' = makeMove board move
   let board = emptyBoard standard
-  let board' = makeMove board move
   let english = TileDist (englishScores twl)
-  print $ scoreOpener standard english board move
-  putStr $ unlines $ labelBoard standard twl board'
-
--- main :: IO ()
--- main = do
---   putStrLn "Loading..."
---   twl <- lexiconFromFile twlFile
---   putStrLn "Loaded TWL."
---   let rack = fromJust $ readRack twl "AEINRST"
---   --let rack = showRack twl [7,2,5,13,11,3,17]
---   print rack
+  let rack = fromJust $ readRack twl "ABCDEFG"
+  putStrLn $ showRack twl rack
+  let tops = topOpeners twl standard english board rack
+  putStr $ unlines $ map (showMove twl) tops
+  -- print $ scoreOpener standard english board move
+  -- putStr $ unlines $ labelBoard standard twl board'
