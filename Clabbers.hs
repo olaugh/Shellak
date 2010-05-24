@@ -157,8 +157,8 @@ textGridSize grid = (rows,cols)
     where
       rows = length grid
       cols = case grid of 
-               (r:rs) -> length r
-               _      -> 0
+               (r:_) -> length r
+               _     -> 0
 
 listsArray :: [[a]] -> Array (Int,Int) a
 listsArray grid = listArray bounds (concat grid)
