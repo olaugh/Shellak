@@ -67,17 +67,17 @@ unsafeLookup x = fromJust . Map.lookup x
 unpackWith :: (Char -> a) -> (ByteString -> [a])
 unpackWith f = map f . B.unpack
 
-wordProduct :: ByteString -> Map Char Integer -> Integer
-wordProduct b ps = product $ unpackWith (`unsafeLookup` ps) b
+wordProduct :: Map Char Integer -> ByteString -> Integer
+wordProduct ps b = product $ unpackWith (`unsafeLookup` ps) b
 
-stringWordProduct :: String -> Map Char Integer -> Integer
-stringWordProduct cs ps = product $ map (`unsafeLookup` ps) cs
+stringWordProduct :: Map Char Integer -> String -> Integer
+stringWordProduct ps s = product $ map (`unsafeLookup` ps) s
 
-wordProductIn :: String -> (Lexicon -> Integer)
-wordProductIn cs = stringWordProduct cs . lexiconPrimes
+wordProductIn :: Lexicon -> String -> Integer
+wordProductIn lexicon = stringWordProduct (lexiconPrimes lexicon)
 
-wordsetFromWords :: [ByteString] -> Map Char Integer -> Set Integer
-wordsetFromWords words ps = Set.fromList $ map (\x -> wordProduct x ps) words
+wordsetFromWords :: Map Char Integer -> [ByteString] -> Set Integer
+wordsetFromWords ps bs = Set.fromList $ map (wordProduct ps) bs
 
 swap :: (a,b) -> (b,a)
 swap (a,b) = (b,a)
@@ -96,7 +96,7 @@ lexiconFromFile file = do
   letterPrimes <- letterPrimesFromWordFile file
   contents <- B.readFile file
   let words = B.lines contents
-  let wordset = wordsetFromWords words letterPrimes
+  let wordset = wordsetFromWords letterPrimes words
   return $ Lexicon letterPrimes words wordset
 
 isGoodIn :: Lexicon -> [Integer] -> Bool
@@ -339,17 +339,6 @@ readRack = safeLookupPrimes
 showRack :: Lexicon -> Rack -> String
 showRack = lookupLetters
 
--- maxes :: [Int] -> [Int]
--- maxes xs = foldl improve [] xs
---   where 
---     improve :: [Int] -> Int -> [Int]
---     improve tops x = case (compare x (best tops)) of
---       GT -> [x]
---       EQ -> (x:tops)
---       LT -> tops
---     best [] = -1000
---     best (x:_) = x
-                                             
 topOpeners :: Lexicon -> Layout -> TileDist -> Board -> Rack -> [Move]
 topOpeners lexicon layout dist board rack = foldl improveLen [] [7,6..2]
   where
@@ -379,7 +368,7 @@ topOpeners lexicon layout dist board rack = foldl improveLen [] [7,6..2]
 scoreOpener :: Layout -> TileDist -> Board -> Move -> Int
 scoreOpener layout tileDist board (Move word sq dir) = score
     where
-      score = mul*(sum letterScores)+bonus
+      score = bonus+mul*sum letterScores
       mul = product $ map ((layoutXWS layout) !) squares
       letterScores = zipWith (*) xls wordScores
       xls = map ((layoutXLS layout) !) squares
