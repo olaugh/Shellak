@@ -367,6 +367,18 @@ topOpeners lexicon layout dist board rack = foldl improveLen [] [7,6..2]
                       []    -> -1000
                       (x:_) -> scoreOpener layout dist board x
 
+-- testOpeners :: Lexicon -> Layout -> TileDist -> Board -> Rack -> [Move]
+-- testOpeners lexicon layout dist board rack = foldl improveLen [] [7,6..2]
+--   where
+--     rackSet = Multi.fromList rack
+--     improveLen :: [Move] -> Int -> [Move]
+--     improveLen tops k = foldl (improveCol k) tops [min..max]
+--       where min = max-k+1
+--             max = snd (layoutStart layout)
+--     improveCol :: Int -> [Move] -> Int -> [Move]
+--     improveCol k tops col = foldl improveGroup tops $ groups k col
+--     groups k col = 
+
 scoreOpener :: Layout -> TileDist -> Board -> Move -> Int
 scoreOpener layout tileDist board (Move word sq dir) = score
     where
@@ -409,9 +421,9 @@ main = do
   let rack = fromJust $ readRack twl "ABCDEFG"
   putStrLn $ showRack twl rack
   start <- getCPUTime
-  let !tops = topOpeners twl standard english board rack
+  let !tops = topMoves twl standard english board rack
   end <- getCPUTime
   let diff = (fromIntegral (end-start)) / (10^12)
-  printf "found %i moves in %0.5fs\n" (length tops::Int) (diff::Double)
+  printf "found %i top moves in %0.5fs\n" (length tops::Int) (diff::Double)
   --putStr $ unlines $ map (showMove twl) tops
 
