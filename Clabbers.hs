@@ -29,9 +29,11 @@ import Data.Numbers.Primes as Primes
 import Data.Ord (comparing)
 import Data.Set (Set)
 import qualified Data.Set as Set
-import System.Random.Mersenne
 import Math.Combinatorics.Multiset (Multiset, kSubsets, permutations, toList)
 import qualified Math.Combinatorics.Multiset as Multi
+import System.CPUTime
+import System.Random.Mersenne
+import Text.Printf
 
 twlFile :: FilePath
 twlFile = "data/lexica/twl.txt"
@@ -381,10 +383,10 @@ scoreOpener layout tileDist board (Move word sq dir) = score
       bonus = if length word == 7 then 50 else 0
       scores = tileScores tileDist
 
--- topMoves :: Lexicon -> Layout -> Board -> Rack -> [Move]
--- topMoves lexicon board rack = 
---     if boardIsEmpty board then topOpeners lexicon layout board rack
---     else fail "can't yet find moves on nonempty boards"
+topMoves :: Lexicon -> Layout -> TileDist -> Board -> Rack -> [Move]
+topMoves lexicon layout dist board rack = 
+    if boardIsEmpty board then topOpeners lexicon layout dist board rack
+    else fail "can't yet find moves on nonempty boards"
 
 -- main :: IO ()
 -- main = do
@@ -402,14 +404,14 @@ main = do
   putStrLn "Loading..."
   twl <- lexiconFromFile twlFile
   putStrLn "Loaded TWL."
-  -- let moveString = "8D ZOOID"
-  -- let move = fromJust $ readMove twl moveString
-  -- let board' = makeMove board move
   let board = emptyBoard standard
   let english = TileDist (englishScores twl)
   let rack = fromJust $ readRack twl "ABCDEFG"
   putStrLn $ showRack twl rack
-  let tops = topOpeners twl standard english board rack
-  putStr $ unlines $ map (showMove twl) tops
-  -- print $ scoreOpener standard english board move
-  -- putStr $ unlines $ labelBoard standard twl board'
+  start <- getCPUTime
+  let !tops = topOpeners twl standard english board rack
+  end <- getCPUTime
+  let diff = (fromIntegral (end-start)) / (10^12)
+  printf "found %i moves in %0.5fs\n" (length tops::Int) (diff::Double)
+  --putStr $ unlines $ map (showMove twl) tops
+
