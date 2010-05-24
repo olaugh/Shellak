@@ -424,6 +424,11 @@ main = do
   let !tops = topMoves twl standard english board rack
   end <- getCPUTime
   let diff = (fromIntegral (end-start)) / (10^12)
-  printf "found %i top moves in %0.5fs\n" (length tops::Int) (diff::Double)
-  --putStr $ unlines $ map (showMove twl) tops
+  let top = head tops
+  let topString = showMove twl top
+  printf "found %i top moves (such as %s) in %0.5fs\n"
+    (length tops::Int) (topString::String) (diff::Double)
+  let board' = makeMove board top
+  putStr $ unlines $ labelBoard standard twl board'
+  
 
