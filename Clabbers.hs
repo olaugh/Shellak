@@ -68,16 +68,16 @@ unpackWith :: (Char -> a) -> (ByteString -> [a])
 unpackWith f = map f . B.unpack
 
 wordProduct :: Map Char Integer -> ByteString -> Integer
-wordProduct ps b = product $ unpackWith (`unsafeLookup` ps) b
+wordProduct ps = product . unpackWith (`unsafeLookup` ps)
 
 stringWordProduct :: Map Char Integer -> String -> Integer
-stringWordProduct ps s = product $ map (`unsafeLookup` ps) s
+stringWordProduct ps = product . map (`unsafeLookup` ps)
 
 wordProductIn :: Lexicon -> String -> Integer
-wordProductIn lexicon = stringWordProduct (lexiconPrimes lexicon)
+wordProductIn = stringWordProduct . lexiconPrimes
 
 wordsetFromWords :: Map Char Integer -> [ByteString] -> Set Integer
-wordsetFromWords ps bs = Set.fromList $ map (wordProduct ps) bs
+wordsetFromWords ps = Set.fromList . map (wordProduct ps)
 
 swap :: (a,b) -> (b,a)
 swap (a,b) = (b,a)
