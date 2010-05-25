@@ -98,7 +98,7 @@ lexiconFromFile file = do
   letterPrimes <- letterPrimesFromWordFile file
   contents <- B.readFile file
   let words = B.lines contents
-  let wordset = wordsetFromWords letterPrimes words
+  let !wordset = wordsetFromWords letterPrimes words
   return $ Lexicon letterPrimes words wordset
 
 isGoodIn :: Lexicon -> [Integer] -> Bool
@@ -430,5 +430,3 @@ main = do
     (length tops::Int) (topString::String) (diff::Double)
   let board' = makeMove board top
   putStr $ unlines $ labelBoard standard twl board'
-  
-
