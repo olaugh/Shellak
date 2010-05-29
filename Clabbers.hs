@@ -31,6 +31,7 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Math.Combinatorics.Multiset (Multiset, kSubsets, permutations, toList)
 import qualified Math.Combinatorics.Multiset as Multi
+import qualified Math.Combinat.Permutations as Perm
 import System.CPUTime
 import System.Random.Mersenne
 import Text.Printf
@@ -196,21 +197,6 @@ textLayout grid = Layout xws xls start
 standard :: Layout
 standard = textLayout standardText
 
-drawRack :: Bag -> MTGen -> IO String
-drawRack bag g = drawTiles 7 []
-    where
-      drawTiles :: Int -> [Int] -> IO String
-      drawTiles 0 drawn = return ""
-      drawTiles n drawn = do
-        r <- random g :: IO Int
-        let i = r `mod` 98
-        let tile = bag ! i
-        let drawn' = i : drawn
-        rest <- drawTiles (n-1) drawn'
-        if elem i drawn
-            then drawTiles n drawn
-            else return (tile : rest)
-
 spaceOut :: String -> String
 spaceOut = intersperse ' '
 
@@ -354,14 +340,19 @@ topOpeners lexicon layout dist board rack = foldl improveLen [] [7,6..2]
       where min = max-k+1
             max = snd (layoutStart layout)
     improveCol :: Multiset Integer -> [Move] -> Int -> [Move]
-    improveCol set tops col = foldl improvePerm tops $ permutations set
-      where improvePerm tops perm = tops'
+    improveCol set tops col = foldl improvePerm tops $ perms set
+      where perms = descendingPerms dist xls
+            xls = map ((layoutXLS layout) !) squares
+            squares = map makeSq $ range $ listBounds $ toList set
+            row = fst (layoutStart layout)
+            sq = (row,col)
+            makeSq delta = first (+ delta) sq
+            improvePerm tops perm = tops'
               where tops' = case compare score bestScore of
                       GT -> [move]
                       EQ -> (move:tops)
                       LT -> tops
-                    move = Move perm (row,col) Across
-                    row = fst (layoutStart layout)
+                    move = Move perm sq Across
                     score = scoreOpener layout dist board move
                     bestScore = case tops of
                       []    -> -1000
@@ -377,10 +368,26 @@ topOpeners lexicon layout dist board rack = foldl improveLen [] [7,6..2]
 --             max = snd (layoutStart layout)
 --     improveCol :: Int -> [Move] -> Int -> [Move]
 --     improveCol k tops col = foldl improveGroup tops $ groups k col
---     groups k col = 
+--     groups k col = kSubsets k scoreSet
+--     scoreSet = Multi.fromList $ map (`unsafeLookup` scores) rack
+--     scores = tileScores dist
 
+descendingPerms :: TileDist -> [Int] -> Multiset Integer -> [[Integer]]
+descendingPerms dist muls set = map orderForBoard $ permutations descendingSet
+  where
+    descendingSet = Multi.fromList descending
+    descending = concat $ zipWith number [0..] $ List.group bigToSmall
+    number n x = if null x then [] else n:number n (tail x)
+    bigToSmall = List.sortBy scoreCmp (toList set)
+    scoreCmp x y | score x > score y = LT
+                 | otherwise         = GT
+    score x = unsafeLookup x (tileScores dist)
+    ranks = reverse $ map fst $ sortBy (comparing snd) $ zip [1..] muls
+    p = Perm.inverse $ Perm.toPermutation ranks
+    orderForBoard x = Perm.permuteList p $ map ((!!) (List.nub bigToSmall)) x
+    
 scoreOpener :: Layout -> TileDist -> Board -> Move -> Int
-scoreOpener layout tileDist board (Move word sq dir) = score
+scoreOpener layout dist board (Move word sq dir) = score
     where
       score = bonus+mul*sum letterScores
       mul = product $ map ((layoutXWS layout) !) squares
@@ -393,23 +400,12 @@ scoreOpener layout tileDist board (Move word sq dir) = score
                      Across -> second
       makeSq delta = coordMover (+ delta) sq
       bonus = if length word == 7 then 50 else 0
-      scores = tileScores tileDist
+      scores = tileScores dist
 
 topMoves :: Lexicon -> Layout -> TileDist -> Board -> Rack -> [Move]
 topMoves lexicon layout dist board rack = 
     if boardIsEmpty board then topOpeners lexicon layout dist board rack
     else fail "can't yet find moves on nonempty boards"
-
--- main :: IO ()
--- main = do
---   putStrLn "Loading..."
---   twl <- lexiconFromFile twlFile
---   putStrLn "Loaded TWL."
---   g <- newMTGen (Just 42)
---   let doRack = do rack <- drawRack english g
---                   putStrLn rack
---                   doRack
---   doRack
 
 main :: IO ()
 main = do
@@ -418,7 +414,7 @@ main = do
   putStrLn "Loaded TWL."
   let board = emptyBoard standard
   let english = TileDist (englishScores twl)
-  let rack = fromJust $ readRack twl "ABCDEFG"
+  let rack = fromJust $ readRack twl ['A'..'K']
   putStrLn $ showRack twl rack
   start <- getCPUTime
   let !tops = topMoves twl standard english board rack
@@ -430,3 +426,13 @@ main = do
     (length tops::Int) (topString::String) (diff::Double)
   let board' = makeMove board top
   putStr $ unlines $ labelBoard standard twl board'
+
+-- main :: IO ()
+-- main = do
+--   putStrLn "Loading..."
+--   twl <- lexiconFromFile twlFile
+--   putStrLn "Loaded TWL."
+--   let english = TileDist (englishScores twl)
+--   let rack = fromJust $ readRack twl "ZYZZYVA"
+--   let perms = descendingPerms english [1,1,2,1,1,1,3] (Multi.fromList rack)
+--   putStr $ unlines $ map (showRack twl) $ perms
