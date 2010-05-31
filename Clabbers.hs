@@ -340,8 +340,8 @@ topOpeners lexicon layout dist board rack = foldl improveLen [] [7,6..2]
       where min = max-k+1
             max = snd (layoutStart layout)
     improveCol :: Multiset Integer -> [Move] -> Int -> [Move]
-    improveCol set tops col = foldl improvePerm tops $ perms set
-      where perms = descendingPerms dist xls
+    improveCol set tops col = foldl improvePerm tops $ perms
+      where perms = descendingPerms dist xls set
             xls = map ((layoutXLS layout) !) squares
             squares = map makeSq $ range $ listBounds $ toList set
             row = fst (layoutStart layout)
@@ -384,7 +384,7 @@ descendingPerms dist muls set = map orderForBoard $ permutations descendingSet
     score x = unsafeLookup x (tileScores dist)
     ranks = reverse $ map fst $ sortBy (comparing snd) $ zip [1..] muls
     p = Perm.inverse $ Perm.toPermutation ranks
-    orderForBoard x = Perm.permuteList p $ map ((!!) (List.nub bigToSmall)) x
+    orderForBoard = Perm.permuteList p . map ((List.nub bigToSmall) !!)
     
 scoreOpener :: Layout -> TileDist -> Board -> Move -> Int
 scoreOpener layout dist board (Move word sq dir) = score
@@ -414,12 +414,12 @@ main = do
   putStrLn "Loaded TWL."
   let board = emptyBoard standard
   let english = TileDist (englishScores twl)
-  let rack = fromJust $ readRack twl ['A'..'K']
+  let rack = fromJust $ readRack twl ['A'..'G']
   putStrLn $ showRack twl rack
   start <- getCPUTime
   let !tops = topMoves twl standard english board rack
   end <- getCPUTime
-  let diff = (fromIntegral (end-start)) / (10^12)
+  let diff = fromIntegral (end-start) / (10^12)
   let top = head tops
   let topString = showMove twl top
   printf "found %i top moves (such as %s) in %0.5fs\n"
