@@ -358,6 +358,18 @@ topOpeners lexicon layout dist board rack = foldl improveLen [] [7,6..2]
                       []    -> -1000
                       (x:_) -> scoreOpener layout dist x
 
+openersAt :: Layout -> TileDist -> Multiset Integer -> Int -> [(Int,Int,Move)]
+openersAt layout dist set col = map toScoredMove perms
+  where perms = descendingPerms dist xls set
+        xls = map ((layoutXLS layout) !) squares
+        squares = map makeSq $ range $ listBounds $ toList set
+        row = fst (layoutStart layout)
+        sq = (row,col)
+        makeSq delta = first (+ delta) sq
+        toScoredMove perm = (score,col,move)
+          where move = Move perm sq Across
+                score = scoreOpener layout dist move
+    
 descendingPerms :: TileDist -> [Int] -> Multiset Integer -> [[Integer]]
 descendingPerms dist muls set = map orderForBoard $ permutations descendingSet
   where
