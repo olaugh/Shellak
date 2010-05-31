@@ -353,24 +353,10 @@ topOpeners lexicon layout dist board rack = foldl improveLen [] [7,6..2]
                       EQ -> (move:tops)
                       LT -> tops
                     move = Move perm sq Across
-                    score = scoreOpener layout dist board move
+                    score = scoreOpener layout dist move
                     bestScore = case tops of
                       []    -> -1000
-                      (x:_) -> scoreOpener layout dist board x
-
--- testOpeners :: Lexicon -> Layout -> TileDist -> Board -> Rack -> [Move]
--- testOpeners lexicon layout dist board rack = foldl improveLen [] [7,6..2]
---   where
---     rackSet = Multi.fromList rack
---     improveLen :: [Move] -> Int -> [Move]
---     improveLen tops k = foldl (improveCol k) tops [min..max]
---       where min = max-k+1
---             max = snd (layoutStart layout)
---     improveCol :: Int -> [Move] -> Int -> [Move]
---     improveCol k tops col = foldl improveGroup tops $ groups k col
---     groups k col = kSubsets k scoreSet
---     scoreSet = Multi.fromList $ map (`unsafeLookup` scores) rack
---     scores = tileScores dist
+                      (x:_) -> scoreOpener layout dist x
 
 descendingPerms :: TileDist -> [Int] -> Multiset Integer -> [[Integer]]
 descendingPerms dist muls set = map orderForBoard $ permutations descendingSet
@@ -385,9 +371,9 @@ descendingPerms dist muls set = map orderForBoard $ permutations descendingSet
     ranks = reverse $ map fst $ sortBy (comparing snd) $ zip [1..] muls
     p = Perm.inverse $ Perm.toPermutation ranks
     orderForBoard = Perm.permuteList p . map ((List.nub bigToSmall) !!)
-    
-scoreOpener :: Layout -> TileDist -> Board -> Move -> Int
-scoreOpener layout dist board (Move word sq dir) = score
+
+scoreOpener :: Layout -> TileDist -> Move -> Int
+scoreOpener layout dist (Move word sq dir) = score
     where
       score = bonus+mul*sum letterScores
       mul = product $ map ((layoutXWS layout) !) squares
