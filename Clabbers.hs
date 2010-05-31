@@ -39,6 +39,7 @@ import Text.Printf
 twlFile :: FilePath
 twlFile = "data/lexica/twl.txt"
 
+-- Rewrite this using accum
 freqs :: FilePath -> IO [(Char,Int)]
 freqs file = do
   content <- B.readFile file
@@ -260,6 +261,9 @@ isAsciiAlpha c = isAlpha c && isAscii c
 data Direction = Down | Across
 data Move = Move [Integer] (Int,Int) Direction
 
+-- So, this is not how you're supposed to use Maybe, but I didn't know any
+-- better when I wrote it. At some point when I have nothing exciting to do,
+-- I should clean this up.
 readMove :: Lexicon -> String -> Maybe Move
 readMove lexicon s = case parse of
                        Just (Just ps,Just (Just sq,dir)) -> Just $ Move ps sq dir
