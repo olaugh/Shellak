@@ -340,7 +340,7 @@ topOpeners lexicon layout dist board rack = foldl improveLen [] [7,6..2]
       where min = max-k+1
             max = snd (layoutStart layout)
     improveCol :: Multiset Integer -> [Move] -> Int -> [Move]
-    improveCol set tops col = foldl improvePerm tops $ perms
+    improveCol set tops col = foldl improvePerm tops perms
       where perms = descendingPerms dist xls set
             xls = map ((layoutXLS layout) !) squares
             squares = map makeSq $ range $ listBounds $ toList set
