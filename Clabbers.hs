@@ -436,28 +436,15 @@ main = do
   putStrLn "Loaded TWL."
   let board = emptyBoard standard
   let english = TileDist (englishScores twl)
-  let rack = fromJust $ readRack twl "ZOOIDVQ"
+  let rack = fromJust $ readRack twl "IJKMSUZ"
   putStrLn $ showRack twl rack
   start <- getCPUTime
-  --let !tops = topMoves twl standard english board rack
   let !moves = openers twl standard english rack
   end <- getCPUTime
   let diff = fromIntegral (end-start) / (10^12)
   let top = head moves
   let topString = showMove twl top
-  printf "found some moves (such as %s) in %0.5fs\n"
-    (topString::String) (diff::Double)
-  --printf "found %i top moves (such as %s) in %0.5fs\n"
-  --  (length tops::Int) (topString::String) (diff::Double)
+  printf "found %i moves (such as %s) in %0.5fs\n"
+    (length moves::Int) (topString::String) (diff::Double)
   let board' = makeMove board top
   putStr $ unlines $ labelBoard standard twl board'
-
--- main :: IO ()
--- main = do
---   putStrLn "Loading..."
---   twl <- lexiconFromFile twlFile
---   putStrLn "Loaded TWL."
---   let english = TileDist (englishScores twl)
---   let rack = fromJust $ readRack twl "ZYZZYVA"
---   let perms = descendingPerms english [1,1,2,1,1,1,3] (Multi.fromList rack)
---   putStr $ unlines $ map (showRack twl) $ perms
