@@ -22,6 +22,7 @@ import qualified Data.ByteString.Char8 as B
 import Data.Char
 import Data.List (map, sortBy, zip, intersperse)
 import qualified Data.List as List
+import Data.List.Utils (mergeBy)
 import Data.Map (Map, fromList)
 import qualified Data.Map as Map
 import Data.Maybe
@@ -362,7 +363,26 @@ topOpeners lexicon layout dist board rack = foldl improveLen [] [7,6..2]
                       []    -> -1000
                       (x:_) -> scoreOpener layout dist x
 
-openersAt :: Layout -> TileDist -> Multiset Integer -> Int -> [(Int,Int,Move)]
+invertOrdering :: Ordering -> Ordering
+invertOrdering = compare EQ -- LT -> GT and vice versa
+
+mergeMoves :: [[(Int,Move)]] -> [(Int,Move)]
+mergeMoves = foldl (mergeBy descendingScore) []
+  where descendingScore (x,_) (y,_) = invertOrdering $ compare x y
+
+openers :: Lexicon -> Layout -> TileDist -> Rack -> [Move]
+openers lexicon layout dist rack = snd $ unzip scoredMoves
+  where rackSet = Multi.fromList rack
+        scoredMoves = mergeMoves $ map lengthMoves [7,6..2]
+        lengthMoves k = mergeMoves $ map (setMoves k) $ kSubsets k rackSet
+        setMoves k set | good = mergeMoves $ map openersAt' [min..max]
+                       | otherwise = []
+          where good = isGoodIn lexicon (toList set)
+                openersAt' = openersAt layout dist set
+                min = max-k+1
+                max = snd (layoutStart layout)
+
+openersAt :: Layout -> TileDist -> Multiset Integer -> Int -> [(Int,Move)]
 openersAt layout dist set col = map toScoredMove perms
   where perms = descendingPerms dist xls set
         xls = map ((layoutXLS layout) !) squares
@@ -370,7 +390,7 @@ openersAt layout dist set col = map toScoredMove perms
         row = fst (layoutStart layout)
         sq = (row,col)
         makeSq delta = first (+ delta) sq
-        toScoredMove perm = (score,col,move)
+        toScoredMove perm = (score,move)
           where move = Move perm sq Across
                 score = scoreOpener layout dist move
     
@@ -416,16 +436,19 @@ main = do
   putStrLn "Loaded TWL."
   let board = emptyBoard standard
   let english = TileDist (englishScores twl)
-  let rack = fromJust $ readRack twl ['A'..'G']
+  let rack = fromJust $ readRack twl "ZOOIDVQ"
   putStrLn $ showRack twl rack
   start <- getCPUTime
-  let !tops = topMoves twl standard english board rack
+  --let !tops = topMoves twl standard english board rack
+  let !moves = openers twl standard english rack
   end <- getCPUTime
   let diff = fromIntegral (end-start) / (10^12)
-  let top = head tops
+  let top = head moves
   let topString = showMove twl top
-  printf "found %i top moves (such as %s) in %0.5fs\n"
-    (length tops::Int) (topString::String) (diff::Double)
+  printf "found some moves (such as %s) in %0.5fs\n"
+    (topString::String) (diff::Double)
+  --printf "found %i top moves (such as %s) in %0.5fs\n"
+  --  (length tops::Int) (topString::String) (diff::Double)
   let board' = makeMove board top
   putStr $ unlines $ labelBoard standard twl board'
 
