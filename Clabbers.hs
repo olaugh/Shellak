@@ -332,6 +332,7 @@ readRack = safeLookupPrimes
 showRack :: Lexicon -> Rack -> String
 showRack = lookupLetters
 
+-- rack -> list of opening moves tied for highest score
 topOpeners :: Lexicon -> Layout -> TileDist -> Rack -> [Move]
 topOpeners lexicon layout dist rack = top openers
   where top [] = []
@@ -339,13 +340,18 @@ topOpeners lexicon layout dist rack = top openers
         openers = scoredOpeners lexicon layout dist rack
         sameScore (x,_) (y,_) = x == y
 
+-- Cheeky, but maps LT, EQ, and GT to GT, EQ, and LT respectively
 invertOrdering :: Ordering -> Ordering
-invertOrdering = compare EQ -- LT -> GT and vice versa
+invertOrdering = compare EQ
 
+-- Flatten a list of lists of (Score,Move), each already sorted by
+-- descending score, maintaining the ordering.
 mergeMoves :: [[(Int,Move)]] -> [(Int,Move)]
 mergeMoves = foldl (mergeBy descendingScore) []
   where descendingScore (x,_) (y,_) = invertOrdering $ compare x y
 
+-- Given a rack, returns a list of opening (scoring) plays, zipped with
+-- their scores, from highest to lowest.
 scoredOpeners :: Lexicon -> Layout -> TileDist -> Rack -> [(Int,Move)]
 scoredOpeners lexicon layout dist rack = scoredMoves
   where rackSet = Multi.fromList rack
@@ -358,6 +364,8 @@ scoredOpeners lexicon layout dist rack = scoredMoves
                 min = max-k+1
                 max = snd (layoutStart layout)
 
+-- Given a set of tiles and a column, returns a list of opening (scoring)
+-- plays, zipped with their scores, from highest to lowest.
 openersAt :: Layout -> TileDist -> Multiset Integer -> Int -> [(Int,Move)]
 openersAt layout dist set col = map toScoredMove perms
   where perms = descendingPerms dist xls set
@@ -370,6 +378,8 @@ openersAt layout dist set col = map toScoredMove perms
           where move = Move perm sq Across
                 score = scoreOpener layout dist move
     
+-- Given a set of tiles and per-square multiplers for positions on the
+-- board, returns a list of permutations from highest to lowest score.
 descendingPerms :: TileDist -> [Int] -> Multiset Integer -> [[Integer]]
 descendingPerms dist muls set = map orderForBoard $ permutations descendingSet
   where
