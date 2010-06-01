@@ -378,7 +378,7 @@ openersAt layout dist set col = map toScoredMove perms
           where move = Move perm sq Across
                 score = scoreOpener layout dist move
     
--- Given a set of tiles and per-square multiplers for positions on the
+-- Given a set of tiles and per-square multipliers for positions on the
 -- board, returns a list of permutations from highest to lowest score.
 descendingPerms :: TileDist -> [Int] -> Multiset Integer -> [[Integer]]
 descendingPerms dist muls set = map orderForBoard $ permutations descendingSet
