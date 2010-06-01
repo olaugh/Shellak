@@ -333,8 +333,9 @@ showRack :: Lexicon -> Rack -> String
 showRack = lookupLetters
 
 topOpeners :: Lexicon -> Layout -> TileDist -> Rack -> [Move]
-topOpeners lexicon layout dist rack = tops
-  where tops = snd $ unzip $ head $ groupBy sameScore openers
+topOpeners lexicon layout dist rack = top openers
+  where top [] = []
+        top x  = snd $ unzip $ head $ groupBy sameScore x
         openers = scoredOpeners lexicon layout dist rack
         sameScore (x,_) (y,_) = x == y
 
@@ -411,7 +412,7 @@ main = do
   putStrLn "Loaded TWL."
   let board = emptyBoard standard
   let english = TileDist (englishScores twl)
-  let rack = fromJust $ readRack twl "AEINRST"
+  let rack = fromJust $ readRack twl "QIZAXUJ"
   putStrLn $ showRack twl rack
   start <- getCPUTime
   let !moves = topOpeners twl standard english rack
