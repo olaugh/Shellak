@@ -340,15 +340,11 @@ topOpeners lexicon layout dist rack = top openers
         openers = scoredOpeners lexicon layout dist rack
         sameScore (x,_) (y,_) = x == y
 
--- Cheeky, but maps LT, EQ, and GT to GT, EQ, and LT respectively
-invertOrdering :: Ordering -> Ordering
-invertOrdering = compare EQ
-
 -- Flatten a list of lists of (Score,Move), each already sorted by
 -- descending score, maintaining the ordering.
 mergeMoves :: [[(Int,Move)]] -> [(Int,Move)]
 mergeMoves = foldl (mergeBy descendingScore) []
-  where descendingScore (x,_) (y,_) = invertOrdering $ compare x y
+  where descendingScore (x,_) (y,_) = compare y x
 
 -- Given a rack, returns a list of opening (scoring) plays, zipped with
 -- their scores, from highest to lowest.
@@ -387,8 +383,7 @@ descendingPerms dist muls set = map orderForBoard $ permutations descendingSet
     descending = concat $ zipWith number [0..] $ List.group bigToSmall
     number n x = if null x then [] else n:number n (tail x)
     bigToSmall = List.sortBy scoreCmp (toList set)
-    scoreCmp x y | score x > score y = LT
-                 | otherwise         = GT
+    scoreCmp x y = compare (score y) (score x)
     score x = unsafeLookup x (tileScores dist)
     ranks = reverse $ map fst $ sortBy (comparing snd) $ zip [1..] muls
     p = Perm.inverse $ Perm.toPermutation ranks
