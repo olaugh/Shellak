@@ -7,7 +7,7 @@
 -- Stability   : unstable
 -- Portability : ?
 --
--- shellak, a crossword game AI
+-- Shellak, a crossword game AI
 --
 -------------------------------------------------------------------
 
