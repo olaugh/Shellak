@@ -20,7 +20,7 @@ import Data.Array.ST
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
 import Data.Char
-import Data.List (map, sortBy, zip, intersperse)
+import Data.List (groupBy, map, sortBy, zip, intersperse)
 import qualified Data.List as List
 import Data.List.Utils (mergeBy)
 import Data.Map (Map, fromList)
@@ -332,36 +332,11 @@ readRack = safeLookupPrimes
 showRack :: Lexicon -> Rack -> String
 showRack = lookupLetters
 
-topOpeners :: Lexicon -> Layout -> TileDist -> Board -> Rack -> [Move]
-topOpeners lexicon layout dist board rack = foldl improveLen [] [7,6..2]
-  where
-    improveLen :: [Move] -> Int -> [Move]
-    improveLen tops k = foldl (improveSet k) tops $ kSubsets k rackSet
-    rackSet = Multi.fromList rack
-    improveSet :: Int -> [Move] -> Multiset Integer -> [Move]
-    improveSet k tops set = if isGoodIn lexicon (toList set) then
-                              foldl (improveCol set) tops [min..max]
-                            else tops
-      where min = max-k+1
-            max = snd (layoutStart layout)
-    improveCol :: Multiset Integer -> [Move] -> Int -> [Move]
-    improveCol set tops col = foldl improvePerm tops perms
-      where perms = descendingPerms dist xls set
-            xls = map ((layoutXLS layout) !) squares
-            squares = map makeSq $ range $ listBounds $ toList set
-            row = fst (layoutStart layout)
-            sq = (row,col)
-            makeSq delta = first (+ delta) sq
-            improvePerm tops perm = tops'
-              where tops' = case compare score bestScore of
-                      GT -> [move]
-                      EQ -> (move:tops)
-                      LT -> tops
-                    move = Move perm sq Across
-                    score = scoreOpener layout dist move
-                    bestScore = case tops of
-                      []    -> -1000
-                      (x:_) -> scoreOpener layout dist x
+topOpeners :: Lexicon -> Layout -> TileDist -> Rack -> [Move]
+topOpeners lexicon layout dist rack = tops
+  where tops = snd $ unzip $ head $ groupBy sameScore openers
+        openers = scoredOpeners lexicon layout dist rack
+        sameScore (x,_) (y,_) = x == y
 
 invertOrdering :: Ordering -> Ordering
 invertOrdering = compare EQ -- LT -> GT and vice versa
@@ -370,8 +345,8 @@ mergeMoves :: [[(Int,Move)]] -> [(Int,Move)]
 mergeMoves = foldl (mergeBy descendingScore) []
   where descendingScore (x,_) (y,_) = invertOrdering $ compare x y
 
-openers :: Lexicon -> Layout -> TileDist -> Rack -> [Move]
-openers lexicon layout dist rack = snd $ unzip scoredMoves
+scoredOpeners :: Lexicon -> Layout -> TileDist -> Rack -> [(Int,Move)]
+scoredOpeners lexicon layout dist rack = scoredMoves
   where rackSet = Multi.fromList rack
         scoredMoves = mergeMoves $ map lengthMoves [7,6..2]
         lengthMoves k = mergeMoves $ map (setMoves k) $ kSubsets k rackSet
@@ -426,7 +401,7 @@ scoreOpener layout dist (Move word sq dir) = score
 
 topMoves :: Lexicon -> Layout -> TileDist -> Board -> Rack -> [Move]
 topMoves lexicon layout dist board rack = 
-    if boardIsEmpty board then topOpeners lexicon layout dist board rack
+    if boardIsEmpty board then topOpeners lexicon layout dist rack
     else fail "can't yet find moves on nonempty boards"
 
 main :: IO ()
@@ -436,15 +411,15 @@ main = do
   putStrLn "Loaded TWL."
   let board = emptyBoard standard
   let english = TileDist (englishScores twl)
-  let rack = fromJust $ readRack twl "IJKMSUZ"
+  let rack = fromJust $ readRack twl "AEINRST"
   putStrLn $ showRack twl rack
   start <- getCPUTime
-  let !moves = openers twl standard english rack
+  let !moves = topOpeners twl standard english rack
   end <- getCPUTime
   let diff = fromIntegral (end-start) / (10^12)
   let top = head moves
   let topString = showMove twl top
-  printf "found %i moves (such as %s) in %0.5fs\n"
+  printf "found %i top moves (such as %s) in %0.5fs\n"
     (length moves::Int) (topString::String) (diff::Double)
   let board' = makeMove board top
   putStr $ unlines $ labelBoard standard twl board'
