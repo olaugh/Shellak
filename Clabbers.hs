@@ -28,7 +28,7 @@ import qualified Data.Map as Map
 import Data.Maybe
 import Data.Numbers.Primes as Primes
 import Data.Ord (comparing)
-import Data.Set (Set)
+import Data.Set (Set, member)
 import qualified Data.Set as Set
 import Math.Combinatorics.Multiset (Multiset, kSubsets, permutations, toList)
 import qualified Math.Combinatorics.Multiset as Multi
@@ -105,10 +105,12 @@ lexiconFromFile file = do
   return $ Lexicon letterPrimes words wordset
 
 isGoodIn :: Lexicon -> [Integer] -> Bool
-isGoodIn lex word = Set.member (product word) (lexiconSet lex)
+isGoodIn lex word = member (product word) (lexiconSet lex)
 
-type Tile = Char
-type Bag = Array Int Char
+isGoodWith :: Lexicon -> Integer -> [Integer] -> Bool
+isGoodWith lex through word = member (through*(product word)) (lexiconSet lex)
+
+type TileSet = Multiset Integer
 
 data TileDist = TileDist (Map Integer Int)
 tileScores (TileDist scores) = scores
@@ -117,7 +119,7 @@ englishScores :: Lexicon -> (Map Integer Int)
 englishScores lexicon = fromList $ zip ps scores
     where
       ps = lookupPrimes lexicon ['A'..'Z']
-      scores = [1,3,3,2,1,4,2,4,1,8,5,1,3,1,1,3,10,1,1,1,1,4,4,8,1,10]
+      scores = [1,3,3,2,1,4,2,4,1,8,5,1,3,1,1,3,10,1,1,1,1,4,4,8,4,10]
 
 listBounds :: [a] -> (Int,Int)
 listBounds s = (0,len-1) where len = length s
@@ -259,8 +261,8 @@ labelBoard layout lexicon board = prettifyGrid bg
 isAsciiAlpha :: Char -> Bool
 isAsciiAlpha c = isAlpha c && isAscii c
 
-data Direction = Down | Across
-data Move = Move [Integer] (Int,Int) Direction
+data Dir = Down | Across
+data Move = Move [Integer] (Int,Int) Dir
 
 -- So, this is not how you're supposed to use Maybe, but I didn't know any
 -- better when I wrote it. At some point when I have nothing exciting to do,
@@ -303,15 +305,38 @@ lookupPrimes :: Lexicon -> String -> [Integer]
 lookupPrimes lexicon = map lookup
     where lookup letter = unsafeLookup letter (lexiconPrimes lexicon)
 
-showMove :: Lexicon -> Move -> String
-showMove lexicon (Move ps (row,col) dir) = pos ++ " " ++ letters
+markThrough :: Board -> [(Int,Char)] -> [(Int,Char)] -> String
+markThrough board new old = concat $ map renderChunk chunks
+  where renderChunk :: ([Bool],[Char]) -> [Char]
+        renderChunk (True:_,x)  = x
+        renderChunk (False:_,x) = "(" ++ x ++ ")"
+        all = zip new (repeat True) ++ zip old (repeat False)
+        (sorted,isNew) = unzip $ sortBy (comparing (fst . fst)) all
+        letters = snd $ unzip sorted
+        chunks = map unzip $ groupBy sameGroup $ zip isNew letters
+        sameGroup (x,_) (y,_) = x == y
+    
+showMove :: Lexicon -> Board -> Move -> String
+showMove lexicon board (Move word sq@(row,col) dir) = pos ++ " " ++ letters
     where
       pos = case dir of
               Across -> num ++ alpha
               Down   -> alpha ++ num
       num = show (row+1)
       alpha = [chr (col+ord 'a')]
-      letters = lookupLetters lexicon ps
+      letters = markThrough board new old
+      axis = case dir of
+               Down   -> fst
+               Across -> snd
+      new = zip newSqs' newLetters
+      newSqs' = map axis newSqs
+      Just newSqs = squaresAt board sq dir $ length word
+      newLetters = lookupLetters lexicon word
+      old = zip oldSqs' oldLetters
+      oldSqs' = map axis oldSqs
+      oldSqs = throughSqsAt board sq dir $ length word
+      oldLetters = lookupLetters lexicon oldTiles
+      oldTiles = throughTilesAt board sq dir $ length word
 
 makeMove :: Board -> Move -> Board
 makeMove (Board _ grid) (Move word pos dir) = Board False grid'
@@ -362,7 +387,7 @@ scoredOpeners lexicon layout dist rack = scoredMoves
 
 -- Given a set of tiles and a column, returns a list of opening (scoring)
 -- plays, zipped with their scores, from highest to lowest.
-openersAt :: Layout -> TileDist -> Multiset Integer -> Int -> [(Int,Move)]
+openersAt :: Layout -> TileDist -> TileSet -> Int -> [(Int,Move)]
 openersAt layout dist set col = map toScoredMove perms
   where perms = descendingPerms dist xls set
         xls = map ((layoutXLS layout) !) squares
@@ -374,9 +399,89 @@ openersAt layout dist set col = map toScoredMove perms
           where move = Move perm sq Across
                 score = scoreOpener layout dist move
     
+onBoard :: Board -> (Int,Int) -> Maybe (Int,Int)
+onBoard board (row,col) | row < 0      = Nothing
+                        | col < 0      = Nothing
+                        | row > maxRow = Nothing
+                        | col > maxCol = Nothing
+                        | otherwise    = Just (row,col)
+  where (_,(maxRow,maxCol)) = bounds $ boardPrimes board
+
+isOnBoard :: Board -> (Int,Int) -> Bool
+isOnBoard board sq = isJust $ onBoard board sq
+
+safeSquare :: Board -> (Int,Int) -> Maybe [(Int,Int)]
+safeSquare board sq = do
+  sq' <- onBoard board sq
+  return $ if ((boardPrimes board) ! sq) == 0 then [sq] else []
+
+nextSq :: (Int,Int) -> Dir -> (Int,Int)
+nextSq (row,col) Down   = (row+1,col)
+nextSq (row,col) Across = (row,col+1)
+
+squaresAt :: Board -> (Int,Int) -> Dir -> Int -> Maybe [(Int,Int)]
+squaresAt _     _  _   0   = Just []
+squaresAt board sq dir len = do
+  let primes = boardPrimes board
+  sqHere <- safeSquare board sq
+  let sq' = nextSq sq dir
+  let len' = len-(length sqHere)
+  moreSqs <- squaresAt board sq' dir len' 
+  return $ sqHere ++ moreSqs
+  
+mulAt :: Layout -> Board -> (Int,Int) -> Int
+mulAt layout board sq = (layoutXLS layout) ! sq
+
+mulsAt :: Layout -> Board -> [(Int,Int)] -> [Int]
+mulsAt layout board squares = map (mulAt layout board) squares
+  
+fitsAt :: Board -> (Int,Int) -> Dir -> [Integer] -> Bool
+fitsAt board sq dir perm = True
+
+throughSqsAt :: Board -> (Int,Int) -> Dir -> Int -> [(Int,Int)]
+throughSqsAt _     _  _   (-1) = []
+throughSqsAt board sq dir len  = if isOnBoard board sq then throughs else []
+  where throughs = sqHere ++ throughSqsAt board sq' dir len'
+        prime = (boardPrimes board) ! sq
+        (sqHere,len') = if prime == 0 then ([],len-1) else ([sq],len)
+        sq' = nextSq sq dir
+
+throughTilesAt :: Board -> (Int,Int) -> Dir -> Int -> [Integer]
+throughTilesAt board sq dir len = map ((boardPrimes board) !) sqs
+  where sqs = throughSqsAt board sq dir len
+
+throughAt :: Board -> (Int,Int) -> Dir -> Int -> Integer
+throughAt board sq dir len = product $ throughTilesAt board sq dir len
+
+-- throughAt :: Board -> (Int,Int) -> Dir -> Int -> Integer
+-- throughAt _     _  _   0   = 1
+-- throughAt board sq dir len = n*(throughAt board sq' dir len')
+--   where prime = (boardPrimes board) ! sq
+--         (n,len') = if prime == 0 then (1,len-1) else (prime,len)
+--         sq' = nextSq sq dir
+
+-- Given a set of tiles, a starting square, and a direction, returns a list
+-- of scoring plays, zipped with their scores, from highest to lowest.     
+movesAt :: Layout -> Lexicon -> TileDist -> Board -> TileSet -> (Int,Int) 
+                  -> Dir -> [(Int,Move)]
+movesAt layout lex dist board set sq dir = map toScoredMove validPerms
+  where validPerms = filter fits perms
+        perms = if (isJust squares) && good then
+                   descendingPerms dist muls set
+                else []
+        squares = squaresAt board sq dir len
+        good = isGoodWith lex through $ toList set
+        len = length $ toList set
+        through = throughAt board sq dir len
+        muls = mulsAt layout board $ fromJust squares
+        fits = fitsAt board sq dir
+        toScoredMove perm = (score,move)
+          where move = Move perm sq dir
+                score = scoreMove layout board dist move
+
 -- Given a set of tiles and per-square multipliers for positions on the
 -- board, returns a list of permutations from highest to lowest score.
-descendingPerms :: TileDist -> [Int] -> Multiset Integer -> [[Integer]]
+descendingPerms :: TileDist -> [Int] -> TileSet -> [[Integer]]
 descendingPerms dist muls set = map orderForBoard $ permutations descendingSet
   where
     descendingSet = Multi.fromList descending
@@ -402,8 +507,21 @@ scoreOpener layout dist (Move word sq dir) = score
                      Down   -> first
                      Across -> second
       makeSq delta = coordMover (+ delta) sq
-      bonus = if length word == 7 then 50 else 0
+      bonus = if length word >= 7 then 50 else 0
       scores = tileScores dist
+
+scoreMove :: Layout -> Board -> TileDist -> Move -> Int
+scoreMove layout board dist (Move word sq dir) = score
+  where score = bonus+mul*(newScore+oldScore)
+        mul = product $ map ((layoutXWS layout) !) newSqs
+        newScore = sum $ zipWith (*) xls newScores
+        xls = map ((layoutXLS layout) !) newSqs
+        newScores = map (`unsafeLookup` scores) word
+        newSqs = fromJust $ squaresAt board sq dir $ length word
+        oldScore = sum $ map (`unsafeLookup` scores) oldTiles
+        oldTiles = throughTilesAt board sq dir $ length word
+        bonus = if length word >= 7 then 50 else 0
+        scores = tileScores dist
 
 topMoves :: Lexicon -> Layout -> TileDist -> Board -> Rack -> [Move]
 topMoves lexicon layout dist board rack = 
@@ -424,8 +542,25 @@ main = do
   end <- getCPUTime
   let diff = fromIntegral (end-start) / (10^12)
   let top = head moves
-  let topString = showMove twl top
+  let topString = showMove twl board top
   printf "found %i top moves (such as %s) in %0.5fs\n"
     (length moves::Int) (topString::String) (diff::Double)
   let board' = makeMove board top
   putStr $ unlines $ labelBoard standard twl board'
+  let rack' = fromJust $ readRack twl "ZICALITY"
+  let rackSet = Multi.fromList rack'
+  let moves' = movesAt standard twl english board' rackSet (7,3) Across
+  let (score,top') = head moves'
+  let throughTiles = throughTilesAt board' (7,3) Across 8
+  print throughTiles
+  print score
+  print $ showMove twl board' top'
+  
+-- main :: IO ()
+-- main = do
+--   putStrLn "Loading..."
+--   twl <- lexiconFromFile twlFile
+--   putStrLn "Loaded TWL."
+--   let board = emptyBoard standard
+--   let squares = squaresAt board (7,7) Across 8
+--   print squares
