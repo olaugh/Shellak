@@ -46,16 +46,15 @@ freqs file = do
   content <- B.readFile file
   let counts = runST (runCount content)
   return (assocs counts)
-    where
-      doCount b a i = if i < B.length b then
-                          do let c = B.index b i
-                             oldCount <- readArray a c
-                             writeArray a c (oldCount + 1)
-                             doCount b a (i + 1)
-                      else return a
-      runCount b = do a <- newArray (chr 0,chr 255) 0
-                        :: ST s (STArray s Char Int)
-                      (doCount b a 0 >>= freeze)
+    where doCount b a i = if i < B.length b then
+                            do let c = B.index b i
+                               oldCount <- readArray a c
+                               writeArray a c (oldCount + 1)
+                               doCount b a (i + 1)
+                            else return a
+          runCount b = do a <- newArray (chr 0,chr 255) 0
+                            :: ST s (STArray s Char Int)
+                          (doCount b a 0 >>= freeze)
 
 letterPrimesFromWordFile :: FilePath -> IO (Map Char Integer)
 letterPrimesFromWordFile file = do
@@ -117,9 +116,8 @@ tileScores (TileDist scores) = scores
 
 englishScores :: Lexicon -> (Map Integer Int)
 englishScores lexicon = fromList $ zip ps scores
-    where
-      ps = lookupPrimes lexicon ['A'..'Z']
-      scores = [1,3,3,2,1,4,2,4,1,8,5,1,3,1,1,3,10,1,1,1,1,4,4,8,4,10]
+  where ps = lookupPrimes lexicon ['A'..'Z']
+        scores = [1,3,3,2,1,4,2,4,1,8,5,1,3,1,1,3,10,1,1,1,1,4,4,8,4,10]
 
 listBounds :: [a] -> (Int,Int)
 listBounds s = (0,len-1) where len = length s
@@ -147,11 +145,10 @@ standardText =  ["3W .. .. 2L .. .. .. 2W .. .. .. 2L .. .. 3W"
 type IntGrid = Array (Int,Int)
 textMuls :: [String] -> Char -> (IntGrid Int)
 textMuls grid c = listsArray $ map stringMul grid
-    where
-      stringMul = map parseMul . words
-      parseMul ['2',x] = if x == c then 2 else 1
-      parseMul ['3',x] = if x == c then 3 else 1
-      parseMul _       = 1
+  where stringMul = map parseMul . words
+        parseMul ['2',x] = if x == c then 2 else 1
+        parseMul ['3',x] = if x == c then 3 else 1
+        parseMul _       = 1
 
 gridSize :: IntGrid a -> (Int,Int)
 gridSize grid = (xmax+1,ymax+1)
@@ -159,22 +156,20 @@ gridSize grid = (xmax+1,ymax+1)
 
 textGridSize :: [[a]] -> (Int,Int)
 textGridSize grid = (rows,cols)
-    where
-      rows = length grid
-      cols = case grid of 
-               (r:_) -> length r
-               _     -> 0
+  where rows = length grid
+        cols = case grid of 
+                 (r:_) -> length r
+                 _     -> 0
 
 listsArray :: [[a]] -> Array (Int,Int) a
 listsArray grid = listArray bounds (concat grid)
-    where
-      bounds = ((0,0),(rows-1,cols-1))
-      (rows,cols) = textGridSize grid
+  where bounds = ((0,0),(rows-1,cols-1))
+        (rows,cols) = textGridSize grid
 
 splitAtEach :: Int -> [a] -> [[a]]
 splitAtEach n []  = []
 splitAtEach n abc = a:splitAtEach n bc
-    where (a,bc) = splitAt n abc
+  where (a,bc) = splitAt n abc
 
 data Board = Board Bool (IntGrid Integer)
 boardIsEmpty (Board empty _      ) = empty
@@ -193,10 +188,9 @@ both f (x,y) = (f x, f y)
   
 textLayout :: [String] -> Layout
 textLayout grid = Layout xws xls start
-    where
-      xws = textMuls grid 'W'
-      xls = textMuls grid 'L'
-      start = both (`div` 2) (gridSize xws)
+  where xws = textMuls grid 'W'
+        xls = textMuls grid 'L'
+        start = both (`div` 2) (gridSize xws)
 
 standard :: Layout
 standard = textLayout standardText
@@ -206,57 +200,51 @@ spaceOut = intersperse ' '
 
 prettifyGrid :: [String] -> [String]
 prettifyGrid grid = [letters,line] ++ numbers ++ [line,letters]
-    where
-      (rows,cols) = textGridSize grid
-      indent s = "   " ++ s ++ " "
-      letters = indent $ spaceOut $ take cols ['a'..]
-      line = indent $ replicate (cols*2-1) '-'
-      numbers = zipWith numberRow [1..] grid
-      numberRow n row = pad (show n) ++ "|" ++ spaceOut row ++ "|"
-      pad s = replicate (2-length s) ' ' ++ s
+  where (rows,cols) = textGridSize grid
+        indent s = "   " ++ s ++ " "
+        letters = indent $ spaceOut $ take cols ['a'..]
+        line = indent $ replicate (cols*2-1) '-'
+        numbers = zipWith numberRow [1..] grid
+        numberRow n row = pad (show n) ++ "|" ++ spaceOut row ++ "|"
+        pad s = replicate (2-length s) ' ' ++ s
 
 layoutPremiumGrids :: Layout -> ([[Int]],[[Int]])
 layoutPremiumGrids layout = both (splitAtEach cols) (both elems (xws,xls))
-    where
-      xws = layoutXWS layout
-      xls = layoutXLS layout
-      (rows,cols) = gridSize xws
+  where xws = layoutXWS layout
+        xls = layoutXLS layout
+        (rows,cols) = gridSize xws
 
 premiumsTextGrid :: ([[Int]],[[Int]]) -> [String]
 premiumsTextGrid grid = uncurry (zipWith rowString) grid
-    where
-      rowString = zipWith square
-      square 3 1 = '='
-      square 2 1 = '-'
-      square 1 3 = '"'
-      square 1 2 = '\''
-      square _ _ = ' '
+  where rowString = zipWith square
+        square 3 1 = '='
+        square 2 1 = '-'
+        square 1 3 = '"'
+        square 1 2 = '\''
+        square _ _ = ' '
 
 labelLayout :: Layout -> [String]
 labelLayout = prettifyGrid . premiumsTextGrid . layoutPremiumGrids
 
 letterGrid :: Lexicon -> Board -> [String]
 letterGrid lexicon board = splitAtEach cols letters
-    where
-      primes = boardPrimes board
-      letters = map lookup (elems primes)
-      lookup 0 = ' '
-      lookup p = unsafeLookup p (lexiconLetters lexicon)
-      (rows,cols) = gridSize primes
+  where primes = boardPrimes board
+        letters = map lookup (elems primes)
+        lookup 0 = ' '
+        lookup p = unsafeLookup p (lexiconLetters lexicon)
+        (rows,cols) = gridSize primes
 
 boardGrid :: [String] -> [String] -> [String]
 boardGrid = zipWith rowString
-    where
-      rowString = zipWith square
-      square x ' ' = x -- empty  -> premium
-      square _ x   = x -- letter -> letter
+  where rowString = zipWith square
+        square x ' ' = x -- empty  -> premium
+        square _ x   = x -- letter -> letter
 
 labelBoard :: Layout -> Lexicon -> Board -> [String]
 labelBoard layout lexicon board = prettifyGrid bg
-    where
-      bg = boardGrid premiums letters
-      premiums = premiumsTextGrid (layoutPremiumGrids layout)
-      letters = letterGrid lexicon board
+  where bg = boardGrid premiums letters
+        premiums = premiumsTextGrid (layoutPremiumGrids layout)
+        letters = letterGrid lexicon board
 
 isAsciiAlpha :: Char -> Bool
 isAsciiAlpha c = isAlpha c && isAscii c
@@ -291,19 +279,19 @@ readMove lexicon s = case parse of
 
 lookupLetters :: Lexicon -> [Integer] -> String
 lookupLetters lexicon = map lookup
-    where lookup p = unsafeLookup p (lexiconLetters lexicon)
+  where lookup p = unsafeLookup p (lexiconLetters lexicon)
 
 safeLookupPrimes :: Lexicon -> String -> Maybe [Integer]
 safeLookupPrimes _       []     = Just []
 safeLookupPrimes lexicon (x:xs) = case (p,ps) of
                                     (Just p',Just ps') -> Just (p':ps')
                                     _                  -> Nothing
-    where p = Map.lookup x (lexiconPrimes lexicon)
-          ps = safeLookupPrimes lexicon xs
+  where p = Map.lookup x (lexiconPrimes lexicon)
+        ps = safeLookupPrimes lexicon xs
 
 lookupPrimes :: Lexicon -> String -> [Integer]
 lookupPrimes lexicon = map lookup
-    where lookup letter = unsafeLookup letter (lexiconPrimes lexicon)
+  where lookup letter = unsafeLookup letter (lexiconPrimes lexicon)
 
 markThrough :: Board -> [(Int,Char)] -> [(Int,Char)] -> String
 markThrough board new old = concat $ map renderChunk chunks
@@ -318,35 +306,33 @@ markThrough board new old = concat $ map renderChunk chunks
     
 showMove :: Lexicon -> Board -> Move -> String
 showMove lexicon board (Move word sq@(row,col) dir) = pos ++ " " ++ letters
-    where
-      pos = case dir of
-              Across -> num ++ alpha
-              Down   -> alpha ++ num
-      num = show (row+1)
-      alpha = [chr (col+ord 'a')]
-      letters = markThrough board new old
-      axis = case dir of
-               Down   -> fst
-               Across -> snd
-      new = zip newSqs' newLetters
-      newSqs' = map axis newSqs
-      Just newSqs = squaresAt board sq dir $ length word
-      newLetters = lookupLetters lexicon word
-      old = zip oldSqs' oldLetters
-      oldSqs' = map axis oldSqs
-      oldSqs = throughSqsAt board sq dir $ length word
-      oldLetters = lookupLetters lexicon oldTiles
-      oldTiles = throughTilesAt board sq dir $ length word
+  where pos = case dir of
+                Across -> num ++ alpha
+                Down   -> alpha ++ num
+        num = show (row+1)
+        alpha = [chr (col+ord 'a')]
+        letters = markThrough board new old
+        axis = case dir of
+                 Down   -> fst
+                 Across -> snd
+        new = zip newSqs' newLetters
+        newSqs' = map axis newSqs
+        Just newSqs = squaresAt board sq dir $ length word
+        newLetters = lookupLetters lexicon word
+        old = zip oldSqs' oldLetters
+        oldSqs' = map axis oldSqs
+        oldSqs = throughSqsAt board sq dir $ length word
+        oldLetters = lookupLetters lexicon oldTiles
+        oldTiles = throughTilesAt board sq dir $ length word
 
 makeMove :: Board -> Move -> Board
 makeMove (Board _ grid) (Move word pos dir) = Board False grid'
-    where
-      grid' = grid // assocs
-      assocs = zipWith makeAssoc word [0..]
-      coordMover = case dir of
-                     Down   -> first
-                     Across -> second
-      makeAssoc letter delta = (pos',letter)
+  where grid' = grid // assocs
+        assocs = zipWith makeAssoc word [0..]
+        coordMover = case dir of
+                       Down   -> first
+                       Across -> second
+        makeAssoc letter delta = (pos',letter)
           where pos' = coordMover (+ delta) pos
 
 type Rack = [Integer]
@@ -453,12 +439,7 @@ throughTilesAt board sq dir len = map ((boardPrimes board) !) sqs
 throughAt :: Board -> (Int,Int) -> Dir -> Int -> Integer
 throughAt board sq dir len = product $ throughTilesAt board sq dir len
 
--- throughAt :: Board -> (Int,Int) -> Dir -> Int -> Integer
--- throughAt _     _  _   0   = 1
--- throughAt board sq dir len = n*(throughAt board sq' dir len')
---   where prime = (boardPrimes board) ! sq
---         (n,len') = if prime == 0 then (1,len-1) else (prime,len)
---         sq' = nextSq sq dir
+-- scoredNonOpeners lexicon layout dist rack = scoredMoves
 
 -- Given a set of tiles, a starting square, and a direction, returns a list
 -- of scoring plays, zipped with their scores, from highest to lowest.     
@@ -496,19 +477,18 @@ descendingPerms dist muls set = map orderForBoard $ permutations descendingSet
 
 scoreOpener :: Layout -> TileDist -> Move -> Int
 scoreOpener layout dist (Move word sq dir) = score
-    where
-      score = bonus+mul*sum letterScores
-      mul = product $ map ((layoutXWS layout) !) squares
-      letterScores = zipWith (*) xls wordScores
-      xls = map ((layoutXLS layout) !) squares
-      wordScores = map (`unsafeLookup` scores) word
-      squares = map makeSq $ range $ listBounds word
-      coordMover = case dir of
-                     Down   -> first
-                     Across -> second
-      makeSq delta = coordMover (+ delta) sq
-      bonus = if length word >= 7 then 50 else 0
-      scores = tileScores dist
+  where score = bonus+mul*sum letterScores
+        mul = product $ map ((layoutXWS layout) !) squares
+        letterScores = zipWith (*) xls wordScores
+        xls = map ((layoutXLS layout) !) squares
+        wordScores = map (`unsafeLookup` scores) word
+        squares = map makeSq $ range $ listBounds word
+        coordMover = case dir of
+                       Down   -> first
+                       Across -> second
+        makeSq delta = coordMover (+ delta) sq
+        bonus = if length word >= 7 then 50 else 0
+        scores = tileScores dist
 
 scoreMove :: Layout -> Board -> TileDist -> Move -> Int
 scoreMove layout board dist (Move word sq dir) = score
