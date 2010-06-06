@@ -126,7 +126,7 @@ stringArray :: String -> Array Int Char
 stringArray s = listArray (listBounds s) s
 
 standardText :: [String]
-standardText =  ["3W .. .. 2L .. .. .. 2W .. .. .. 2L .. .. 3W"
+standardText =  ["3W .. .. 2L .. .. .. 3W .. .. .. 2L .. .. 3W"
                 ,".. 2W .. .. .. 3L .. .. .. 3L .. .. .. 2W .."
                 ,".. .. 2W .. .. .. 2L .. 2L .. .. .. 2W .. .."
                 ,"2L .. .. 2W .. .. .. 2L .. .. .. 2W .. .. 2L"
@@ -140,7 +140,7 @@ standardText =  ["3W .. .. 2L .. .. .. 2W .. .. .. 2L .. .. 3W"
                 ,"2L .. .. 2W .. .. .. 2L .. .. .. 2W .. .. 2L"
                 ,".. .. 2W .. .. .. 2L .. 2L .. .. .. 2W .. .."
                 ,".. 2W .. .. .. 3L .. .. .. 3L .. .. .. 2W .."
-                ,"3W .. .. 2L .. .. .. 2W .. .. .. 2L .. .. 3W"]
+                ,"3W .. .. 2L .. .. .. 3W .. .. .. 2L .. .. 3W"]
 
 type IntGrid = Array (Int,Int)
 textMuls :: [String] -> Char -> (IntGrid Int)
@@ -439,7 +439,22 @@ throughTilesAt board sq dir len = map ((boardPrimes board) !) sqs
 throughAt :: Board -> (Int,Int) -> Dir -> Int -> Integer
 throughAt board sq dir len = product $ throughTilesAt board sq dir len
 
--- scoredNonOpeners lexicon layout dist rack = scoredMoves
+topMoves :: Lexicon -> Layout -> Board -> TileDist -> Rack -> [Move]
+topMoves lexicon layout board dist rack = top moves
+  where top [] = []
+        top x  = snd $ unzip $ head $ groupBy sameScore x
+        moves = scoredNonOpeners lexicon layout board dist rack
+        sameScore (x,_) (y,_) = x == y
+
+scoredNonOpeners lex layout board dist rack = mergeMoves $ map sqMoves sqs
+  where sqs = [(r,c,d,s) | r <- rows, c <- cols, d <- [Across], s <- sets]
+        bounds' x = ((r,r'),(c,c')) where ((r,c),(r',c')) = bounds x
+        (rows,cols) = both range $ bounds' $ boardPrimes board
+        dirs = [Down, Across]
+        sqMoves (r,c,d,s) = movesAt layout lex dist board s (r,c) d
+        rackSet = Multi.fromList rack
+        sets = concat $ map lengthSets [7]
+        lengthSets k = kSubsets k rackSet
 
 -- Given a set of tiles, a starting square, and a direction, returns a list
 -- of scoring plays, zipped with their scores, from highest to lowest.     
@@ -503,10 +518,10 @@ scoreMove layout board dist (Move word sq dir) = score
         bonus = if length word >= 7 then 50 else 0
         scores = tileScores dist
 
-topMoves :: Lexicon -> Layout -> TileDist -> Board -> Rack -> [Move]
-topMoves lexicon layout dist board rack = 
-    if boardIsEmpty board then topOpeners lexicon layout dist rack
-    else fail "can't yet find moves on nonempty boards"
+-- topMoves :: Lexicon -> Layout -> TileDist -> Board -> Rack -> [Move]
+-- topMoves lexicon layout dist board rack = 
+--     if boardIsEmpty board then topOpeners lexicon layout dist rack
+--     else fail "can't yet find moves on nonempty boards"
 
 main :: IO ()
 main = do
@@ -527,20 +542,17 @@ main = do
     (length moves::Int) (topString::String) (diff::Double)
   let board' = makeMove board top
   putStr $ unlines $ labelBoard standard twl board'
-  let rack' = fromJust $ readRack twl "ZICALITY"
-  let rackSet = Multi.fromList rack'
-  let moves' = movesAt standard twl english board' rackSet (7,3) Across
-  let (score,top') = head moves'
-  let throughTiles = throughTilesAt board' (7,3) Across 8
-  print throughTiles
-  print score
+  let rack' = fromJust $ readRack twl "AEMRSST"
+  putStrLn $ showRack twl rack'
+  start' <- getCPUTime
+  let !moves' = topMoves twl standard board' english rack'
+  end' <- getCPUTime
+  let diff' = fromIntegral (end'-start') / (10^12)
+  let top' = head moves'
+  let topString' = showMove twl board' top'
+  printf "found %i top moves (such as %s) in %0.5fs\n"
+    (length moves'::Int) (topString'::String) (diff'::Double)
   print $ showMove twl board' top'
-  
--- main :: IO ()
--- main = do
---   putStrLn "Loading..."
---   twl <- lexiconFromFile twlFile
---   putStrLn "Loaded TWL."
---   let board = emptyBoard standard
---   let squares = squaresAt board (7,7) Across 8
---   print squares
+  let score' = scoreMove standard board' english top'
+  print score'
+
