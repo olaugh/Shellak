@@ -449,15 +449,27 @@ topMoves lexicon layout board dist rack = top moves
         nonOpeners = scoredNonOpeners lexicon layout board dist rack
         sameScore (x,_) (y,_) = x == y
 
-scoredNonOpeners lex layout board dist rack = mergeMoves $ map sqMoves sqs
-  where sqs = [(r,c,d,s) | r <- rows, c <- cols, d <- dirs, s <- sets]
+scoredNonOpeners :: Lexicon -> Layout -> Board -> TileDist -> Rack
+                            -> [(Int,Move)]
+scoredNonOpeners lex layout board dist rack = mergeMoves $ map sqLenMoves' sqs
+  where sqs = [(r,c,d,len) | len <- [7,6..1], r <- rows, c <- cols, d <- dirs]
         bounds' x = ((r,r'),(c,c')) where ((r,c),(r',c')) = bounds x
         (rows,cols) = both range $ bounds' $ boardPrimes board
         dirs = [Down, Across]
-        sqMoves (r,c,d,s) = movesAt layout lex dist board s (r,c) d
-        rackSet = Multi.fromList rack
-        sets = concat $ map lengthSets [7,6..1]
-        lengthSets k = kSubsets k rackSet
+        sqLenMoves' (r,c,d,len) =
+          sqLenMoves layout lex dist board rack (r,c) d len
+
+sqLenMoves :: Layout -> Lexicon -> TileDist -> Board -> Rack -> (Int,Int)
+                     -> Dir -> Int -> [(Int,Move)]
+sqLenMoves layout lex dist board rack sq dir len =
+  mergeMoves $ map movesAt' sets
+  where sets = if (isJust squares) && touches then
+                 kSubsets len (Multi.fromList rack)
+               else []  
+        squares = squaresAt board sq dir len
+        touches = (through > 1) || (hooks board (fromJust squares) dir)
+        through = throughAt board sq dir len
+        movesAt' = movesAt layout lex dist board sq dir through
 
 covered :: Board -> (Int,Int) -> Bool
 covered board sq = ((boardPrimes board) ! sq) > 1
@@ -478,19 +490,17 @@ hooks board (sq:sqs) dir = hooksAt board sq dir || hooks board sqs dir
 
 -- Given a set of tiles, a starting square, and a direction, returns a list
 -- of scoring plays, zipped with their scores, from highest to lowest.     
-movesAt :: Layout -> Lexicon -> TileDist -> Board -> TileSet -> (Int,Int) 
-                  -> Dir -> [(Int,Move)]
-movesAt layout lex dist board set sq dir = map toScoredMove validPerms
+movesAt :: Layout -> Lexicon -> TileDist -> Board -> (Int,Int) -> Dir 
+                  -> Integer -> TileSet -> [(Int,Move)]
+movesAt layout lex dist board sq dir through set = map toScoredMove validPerms
   where validPerms = filter fits perms
-        perms = if (isJust squares) && good && touches then
+        perms = if (isJust squares) && good then
                    descendingPerms dist muls set
                 else []
         squares = squaresAt board sq dir len
         squares' = fromJust squares
         good = isGoodWith lex through $ toList set
-        touches = (through > 1) || (hooks board squares' dir)
         len = length $ toList set
-        through = throughAt board sq dir len
         muls = mulsAt layout board squares'
         fits = fitsAt board sq dir
         toScoredMove perm = (score,move)
