@@ -463,7 +463,7 @@ topMoves lexicon layout board dist rack = top moves
 scoredNonOpeners :: Lexicon -> Layout -> Board -> TileDist -> Rack
                             -> [(Int,Move)]
 scoredNonOpeners lex layout board dist rack = mergeMoves $ map sqLenMoves' sqs
-  where sqs = [(r,c,d,len) | len <- lens, r <- rows, c <- cols, d <- dirs]
+  where sqs = [(r,c,d,len) | len <- lens, r <- [6], c <- cols, d <- [Across]]
         bounds' x = ((r,r'),(c,c')) where ((r,c),(r',c')) = bounds x
         (rows,cols) = both range $ bounds' $ boardPrimes board
         lens = [7,6..1]
@@ -518,6 +518,16 @@ crossesAt board dir sqs = map (crossAt board dir) sqs
 crossProdsAt :: Board -> Dir -> [(Int,Int)] -> [Integer]
 crossProdsAt board dir sqs = map (sqProd board) $ crossesAt board dir sqs
 
+scoreHook :: Layout -> Board -> TileDist -> Dir -> (Int,Int) -> Int
+scoreHook layout board dist dir sq = sum crossScores
+  where crossScores = map (`unsafeLookup` scores) $ sqTiles board crossSqs
+        crossSqs = crossAt board dir sq
+        scores = tileScores dist
+        
+scoreHooks :: Layout -> Board -> TileDist -> Dir -> [(Int,Int)] -> Int
+scoreHooks layout board dist dir sqs =
+  sum $ map (scoreHook layout board dist dir) sqs
+
 -- Given a set of tiles, a starting square, and a direction, returns a list
 -- of scoring plays, zipped with their scores, from highest to lowest.     
 movesAt :: Layout -> Lexicon -> TileDist -> Board -> (Int,Int) -> Dir 
@@ -570,7 +580,7 @@ scoreOpener layout dist (Move word sq dir) = score
 
 scoreMove :: Layout -> Board -> TileDist -> Move -> Int
 scoreMove layout board dist (Move word sq dir) = score
-  where score = bonus+mul*(newScore+oldScore)
+  where score = bonus+hookScore+mul*(newScore+oldScore)
         mul = product $ map ((layoutXWS layout) !) newSqs
         newScore = sum $ zipWith (*) xls newScores
         xls = map ((layoutXLS layout) !) newSqs
@@ -579,6 +589,7 @@ scoreMove layout board dist (Move word sq dir) = score
         oldScore = sum $ map (`unsafeLookup` scores) oldTiles
         oldTiles = throughTilesAt board sq dir $ length word
         bonus = if length word >= 7 then 50 else 0
+        hookScore = scoreHooks layout board dist dir newSqs
         scores = tileScores dist
 
 main :: IO ()
