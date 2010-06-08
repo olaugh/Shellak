@@ -31,8 +31,8 @@ import Data.Ord (comparing)
 import Data.Set (Set, member)
 import qualified Data.Set as Set
 import Math.Combinatorics.Multiset (Multiset, kSubsets, permutations, toList)
-import qualified Math.Combinatorics.Multiset as Multi
 import qualified Math.Combinat.Permutations as Perm
+import qualified Math.Combinatorics.Multiset as Multi
 import System.CPUTime
 import System.Random.Mersenne
 import Text.Printf
@@ -176,7 +176,8 @@ boardIsEmpty (Board empty _      ) = empty
 boardPrimes  (Board _      primes) = primes
 
 emptyBoard :: Layout -> Board
-emptyBoard layout = Board True (listArray (bounds (layoutXWS layout)) (repeat 0))
+emptyBoard layout =
+  Board True (listArray (bounds (layoutXWS layout)) (repeat 0))
 
 data Layout = Layout (IntGrid Int) (IntGrid Int) (Int,Int)
 layoutXWS   (Layout xws _ s) = xws
@@ -415,11 +416,13 @@ squaresAt board sq dir len = do
   moreSqs <- squaresAt board sq' dir len' 
   return $ sqHere ++ moreSqs
   
-mulAt :: Layout -> Board -> (Int,Int) -> Int
-mulAt layout board sq = (layoutXLS layout) ! sq
-
-mulsAt :: Layout -> Board -> [(Int,Int)] -> [Int]
-mulsAt layout board squares = map (mulAt layout board) squares
+mulAt :: Layout -> Board -> Dir -> (Int,Int) -> Int
+mulAt layout board dir sq = ways * xls
+  where ways = if (hooksAt board sq dir) then 2 else 1
+        xls = (layoutXLS layout) ! sq
+        
+mulsAt :: Layout -> Board -> Dir -> [(Int,Int)] -> [Int]
+mulsAt layout board dir sqs = map (mulAt layout board dir) sqs
 
 fitsAt :: Lexicon -> Integer -> Integer -> Bool
 fitsAt _   1     _ = True
@@ -463,7 +466,7 @@ topMoves lexicon layout board dist rack = top moves
 scoredNonOpeners :: Lexicon -> Layout -> Board -> TileDist -> Rack
                             -> [(Int,Move)]
 scoredNonOpeners lex layout board dist rack = mergeMoves $ map sqLenMoves' sqs
-  where sqs = [(r,c,d,len) | len <- lens, r <- [6], c <- cols, d <- [Across]]
+  where sqs = [(r,c,d,len) | len <- [7], r <- [6], c <- [2], d <- [Across]]
         bounds' x = ((r,r'),(c,c')) where ((r,c),(r',c')) = bounds x
         (rows,cols) = both range $ bounds' $ boardPrimes board
         lens = [7,6..1]
@@ -542,26 +545,54 @@ movesAt layout lex dist board sq dir through crosses set =
         squares' = fromJust squares
         good = isGoodWith lex through $ toList set
         len = length $ toList set
-        muls = mulsAt layout board squares'
+        muls = [2,1,2,2,4,2,2]
+        --muls = mulsAt layout board dir squares'
         fits' = fits lex crosses
         toScoredMove perm = (score,move)
           where move = Move perm sq dir
                 score = scoreMove layout board dist move
 
+unfold1 :: (a -> Maybe a) -> a -> [a]
+unfold1 f x = case f x of 
+  Nothing -> [x] 
+  Just y  -> x : unfold1 f y
+
+-- | Generates all permutations of a multiset 
+--   (based on \"algorithm L\" in Knuth; somewhat less efficient). 
+--   The order is lexicographic.  
+permuteBy :: (Eq a, Ord a) => (a -> a -> Ordering) -> [a] -> [[a]] 
+permuteBy cmp xs = unfold1 next (sortBy cmp xs) where
+  -- next :: [a] -> Maybe [a]
+  next xs = case findj (reverse xs,[]) of 
+    Nothing -> Nothing
+    Just ( (l:ls) , rs) -> Just $ inc l ls (reverse rs,[]) 
+    Just ( [] , _ ) -> error "permute: should not happen"
+
+  -- we use simple list zippers: (left,right)
+  -- findj :: ([a],[a]) -> Maybe ([a],[a])   
+  findj ( xxs@(x:xs) , yys@(y:_) ) = case cmp x y of
+    LT        -> Just ( xxs , yys )    
+    otherwise -> findj ( xs , x : yys )
+
+  findj ( x:xs , [] ) = findj ( xs , [x] )  
+  findj ( [] , _ ) = Nothing
+  
+  -- inc :: a -> [a] -> ([a],[a]) -> [a]
+  inc u us ( (x:xs) , yys ) = case cmp u x of
+    LT        -> reverse (x:us)  ++ reverse (u:yys) ++ xs
+    otherwise -> inc u us ( xs , x : yys ) 
+  inc _ _ ( [] , _ ) = error "permute: should not happen"
+      
 -- Given a set of tiles and per-square multipliers for positions on the
 -- board, returns a list of permutations from highest to lowest score.
 descendingPerms :: TileDist -> [Int] -> TileSet -> [[Integer]]
-descendingPerms dist muls set = map orderForBoard $ permutations descendingSet
+descendingPerms dist muls set =
+  map orderForBoard $ permuteBy (descendingUniq dist) (toList set)
   where
-    descendingSet = Multi.fromList descending
-    descending = concat $ zipWith number [0..] $ List.group bigToSmall
-    number n x = if null x then [] else n:number n (tail x)
-    bigToSmall = List.sortBy scoreCmp (toList set)
-    scoreCmp x y = compare (score y) (score x)
-    score x = unsafeLookup x (tileScores dist)
     ranks = reverse $ map fst $ sortBy (comparing snd) $ zip [1..] muls
-    p = Perm.inverse $ Perm.toPermutation ranks
-    orderForBoard = Perm.permuteList p . map ((List.nub bigToSmall) !!)
+    p = if (length muls) == 7 then Perm.toPermutation [2,7,3,4,1,5,6]
+        else Perm.inverse $ Perm.toPermutation ranks
+    orderForBoard = Perm.permuteList p
 
 scoreOpener :: Layout -> TileDist -> Move -> Int
 scoreOpener layout dist (Move word sq dir) = score
@@ -580,10 +611,10 @@ scoreOpener layout dist (Move word sq dir) = score
 
 scoreMove :: Layout -> Board -> TileDist -> Move -> Int
 scoreMove layout board dist (Move word sq dir) = score
-  where score = bonus+hookScore+mul*(newScore+oldScore)
-        mul = product $ map ((layoutXWS layout) !) newSqs
-        newScore = sum $ zipWith (*) xls newScores
-        xls = map ((layoutXLS layout) !) newSqs
+  where score = bonus+hookScore+wMul*(newScore+oldScore)
+        wMul = product $ map ((layoutXWS layout) !) newSqs
+        newScore = sum $ zipWith (*) muls newScores
+        muls = mulsAt layout board dir newSqs
         newScores = map (`unsafeLookup` scores) word
         newSqs = fromJust $ squaresAt board sq dir $ length word
         oldScore = sum $ map (`unsafeLookup` scores) oldTiles
@@ -592,6 +623,24 @@ scoreMove layout board dist (Move word sq dir) = score
         hookScore = scoreHooks layout board dist dir newSqs
         scores = tileScores dist
 
+descendingUniq dist x y = case compare (score x) (score y) of
+                            LT -> GT
+                            GT -> LT
+                            EQ -> compare x y
+  where score x = unsafeLookup x (tileScores dist)                            
+
+-- main :: IO ()
+-- main = do
+--   twl <- lexiconFromFile twlFile
+--   let rack = fromJust $ readRack twl "PHOBIAS"
+--   putStrLn $ showRack twl rack
+--   let english = TileDist (englishScores twl)
+--   let perms = permuteBy (descendingUniq english) rack
+--   let p = Perm.toPermutation [2,7,3,4,1,5,6]  
+--   let ordered = map (Perm.permuteList p) perms    
+--   print $ length ordered
+--   putStr $ unlines $ map (showRack twl) ordered
+  
 main :: IO ()
 main = do
   putStrLn "Loading..."
@@ -612,7 +661,7 @@ main = do
     (length moves::Int) (topString::String) (score::Int) (diff::Double)
   let board' = makeMove board top
   putStr $ unlines $ labelBoard standard twl board'
-  let rack' = fromJust $ readRack twl "RETINAS"
+  let rack' = fromJust $ readRack twl "PHOBIAS"
   putStrLn $ showRack twl rack'
   start' <- getCPUTime
   let !moves' = topMoves twl standard board' english rack'
@@ -623,3 +672,8 @@ main = do
   let score' = scoreMove standard board' english top'
   printf "found %i top moves (such as %s for %i) in %0.5fs\n"
     (length moves'::Int) (topString'::String) (score'::Int) (diff'::Double)
+  putStrLn "all moves:"
+  let allMoves = scoredNonOpeners twl standard board' english rack'
+  putStr $ unlines $ map (show . (second (showMove twl board'))) allMoves
+  --let hospiab = fromJust $ readMove twl "7c HOSBIAP"
+  --print $ scoreMove standard board' english hospiab
