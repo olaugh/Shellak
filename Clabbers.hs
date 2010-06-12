@@ -476,19 +476,6 @@ scoredNonOpeners lex layout board dist rack = mergeMoves $ map sqLenMoves' sqs
         sqLenMoves' (r,c,d,len) =
           sqLenMoves layout lex dist board rack (r,c) d len
 
--- sqLenMoves :: Layout -> Lexicon -> TileDist -> Board -> Rack -> (Int,Int)
---                      -> Dir -> Int -> [(Int,Move)]
--- sqLenMoves layout lex dist board rack sq dir len =
---   mergeMoves $ map movesAt' sets
---   where sets = if (isJust squares) && touches then
---                  kSubsets len (Multi.fromList rack)
---                else []  
---         squares = squaresAt board sq dir len
---         touches = (through > 1) || (hooks board (fromJust squares) dir)
---         through = throughAt board sq dir len
---         crosses = crossProdsAt board dir (fromJust squares)
---         movesAt' = movesAt layout lex dist board sq dir through crosses
-
 sqLenMoves :: Layout -> Lexicon -> TileDist -> Board -> Rack -> (Int,Int)
                      -> Dir -> Int -> [(Int,Move)]
 sqLenMoves layout lex dist board rack sq dir len =
@@ -553,31 +540,11 @@ combineSets (sets:sets') = map Multi.disjUnions pairs
 spotSets :: TileDist -> [Int] -> Rack -> [TileSet]
 spotSets dist spot rack = combineSets $ subSets dist spot rack
 
--- spotMoves :: Layout -> Lexicon -> TileDist -> Board -> (Int,Int) -> Dir
---                     -> Integer -> [Integer] -> Rack -> [Int]
---                     -> [(Int,Move)]
--- spotMoves layout lex dist board sq dir through crosses rack spot =
---   sortBy descendingScore $ map toScoredMove validPerms
---   where validPerms = filter okay perms
---         perms = if (isJust squares) then
---                   spotPerms dist spot rack
---                 else []
---         squares = squaresAt board sq dir len
---         squares' = fromJust squares
---         --good = isGoodWith lex through $ toList set
---         len = length spot
---         okay perm = fits' perm && good perm 
---         good = isGoodWith lex through
---         fits' = fits lex crosses
---         toScoredMove perm = (score,move)
---           where move = Move perm sq dir
---                 score = scoreMove layout board dist move
-
 spotMoves :: Layout -> Lexicon -> TileDist -> Board -> (Int,Int) -> Dir
                     -> Integer -> [Integer] -> Rack -> [Int]
                     -> [(Int,Move)]
 spotMoves layout lex dist board sq dir through crosses rack spot =
-  mergeMoves $ map movesAt' $ filter good sets
+  concatMap movesAt $ filter good sets
   where sets = if (isJust squares) then
                   spotSets dist spot rack
                else []
@@ -586,10 +553,9 @@ spotMoves layout lex dist board sq dir through crosses rack spot =
         len = length spot
         good set = isGoodWith lex through $ toList set
         fits' = fits lex crosses
-        movesAt' = setMovesAt layout lex dist board sq dir through crosses spot
-        toScoredMove perm = (score,move)
-          where move = Move perm sq dir
-                score = scoreMove layout board dist move
+        movesAt = setMovesAt layout lex dist board sq dir through
+                             crosses score spot
+        score = scoreSpot layout board dist sq dir spot
 
 covered :: Board -> (Int,Int) -> Bool
 covered board sq = ((boardPrimes board) ! sq) > 1
@@ -635,50 +601,11 @@ scoreHooks :: Layout -> Board -> TileDist -> Dir -> [(Int,Int)] -> Int
 scoreHooks layout board dist dir sqs =
   sum $ map (scoreHook layout board dist dir) sqs
 
--- Given a set of tiles, a starting square, and a direction, returns a list
--- of scoring plays, zipped with their scores, from highest to lowest.     
--- movesAt :: Layout -> Lexicon -> TileDist -> Board -> (Int,Int) -> Dir 
---                   -> Integer -> [Integer] -> TileSet -> [(Int,Move)]
--- movesAt layout lex dist board sq dir through crosses set =
---   map toScoredMove validPerms
---   where validPerms = filter fits' perms
---         perms = if (isJust squares) && good then
---                    descendingPerms dist muls set
---                 else []
---         squares = squaresAt board sq dir len
---         squares' = fromJust squares
---         good = isGoodWith lex through $ toList set
---         len = length $ toList set
---         muls = [2,1,2,2,4,2,2]
---         --muls = mulsAt layout board dir squares'
---         fits' = fits lex crosses
---         toScoredMove perm = (score,move)
---           where move = Move perm sq dir
---                 score = scoreMove layout board dist move
-
-movesAt :: Layout -> Lexicon -> TileDist -> Board -> (Int,Int) -> Dir 
-                  -> Integer -> [Integer] -> TileSet -> [(Int,Move)]
-movesAt layout lex dist board sq dir through crosses set =
-  map toScoredMove validPerms
-  where validPerms = filter fits' perms
-        perms = if (isJust squares) && good then
-                   descendingPerms dist muls set
-                else []
-        squares = squaresAt board sq dir len
-        squares' = fromJust squares
-        good = isGoodWith lex through $ toList set
-        len = length $ toList set
-        muls = mulsAt layout board dir squares'
-        fits' = fits lex crosses
-        toScoredMove perm = (score,move)
-          where move = Move perm sq dir
-                score = scoreMove layout board dist move
-
 setMovesAt :: Layout -> Lexicon -> TileDist -> Board -> (Int,Int) -> Dir 
-                     -> Integer -> [Integer] -> [Int] -> TileSet
+                     -> Integer -> [Integer] -> Int -> [Int] -> TileSet
                      -> [(Int,Move)]
-setMovesAt layout lex dist board sq dir through crosses spot set =
-  sortBy descendingScore $ map toScoredMove validPerms
+setMovesAt layout lex dist board sq dir through crosses score spot set =
+  map toScoredMove validPerms
   where validPerms = filter fits' perms
         perms = if (isJust squares) && good then
                    spotSetPerms dist spot set
@@ -689,9 +616,7 @@ setMovesAt layout lex dist board sq dir through crosses spot set =
         len = length $ toList set
         muls = mulsAt layout board dir squares'
         fits' = fits lex crosses
-        toScoredMove perm = (score,move)
-          where move = Move perm sq dir
-                score = scoreMove layout board dist move
+        toScoredMove perm = (score,Move perm sq dir)
 
 unfold1 :: (a -> Maybe a) -> a -> [a]
 unfold1 f x = case f x of 
@@ -764,24 +689,24 @@ scoreMove layout board dist (Move word sq dir) = score
         hookScore = scoreHooks layout board dist dir newSqs
         scores = tileScores dist
 
+scoreSpot :: Layout -> Board -> TileDist -> (Int,Int) -> Dir -> [Int] -> Int
+scoreSpot layout board dist sq dir spot = score
+  where score = bonus+hookScore+wMul*(newScore+oldScore)
+        wMul = product $ map ((layoutXWS layout) !) newSqs
+        newScore = sum $ zipWith (*) muls spot
+        muls = mulsAt layout board dir newSqs
+        newSqs = fromJust $ squaresAt board sq dir $ length spot
+        oldScore = sum $ map (`unsafeLookup` scores) oldTiles
+        oldTiles = throughTilesAt board sq dir $ length spot
+        bonus = if length spot >= 7 then 50 else 0
+        hookScore = scoreHooks layout board dist dir newSqs
+        scores = tileScores dist
+
 descendingUniq dist x y = case compare (score x) (score y) of
                             LT -> GT
                             GT -> LT
                             EQ -> compare x y
   where score x = unsafeLookup x (tileScores dist)
-        
--- main :: IO ()
--- main = do
---   putStrLn "Loading..."
---   twl <- lexiconFromFile twlFile
---   putStrLn "Loaded TWL."
---   let board = emptyBoard standard
---   let english = TileDist (englishScores twl)
---   let rack = fromJust $ readRack twl "CRASHES"
---   putStrLn $ showRack twl rack
---   --let sets = subSets english [4,3,1] rack
---   let sets = spotSets english [4,3,1] rack
---   mapM_ print sets
         
 main :: IO ()
 main = do
@@ -803,7 +728,7 @@ main = do
     (length moves::Int) (topString::String) (score::Int) (diff::Double)
   let board' = makeMove board top
   putStr $ unlines $ labelBoard standard twl board'
-  let rack' = fromJust $ readRack twl "MASTERS"
+  let rack' = fromJust $ readRack twl "MGWUMPS"
   putStrLn $ showRack twl rack'
   start' <- getCPUTime
   let !moves' = topMoves twl standard board' english rack'
