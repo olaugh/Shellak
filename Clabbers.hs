@@ -344,11 +344,13 @@ readRack = safeLookupPrimes
 showRack :: Lexicon -> Rack -> String
 showRack = lookupLetters
 
+descendingScore :: (Int,a) -> (Int,b) -> Ordering
+descendingScore (x,_) (y,_) = compare y x
+
 -- Flatten a list of lists of (Score,Move), each already sorted by
 -- descending score, maintaining the ordering.
 mergeMoves :: [[(Int,Move)]] -> [(Int,Move)]
 mergeMoves = foldl (mergeBy descendingScore) []
-  where descendingScore (x,_) (y,_) = compare y x
 
 -- Given a rack, returns a list of opening (scoring) plays, zipped with
 -- their scores, from highest to lowest.
@@ -466,7 +468,7 @@ topMoves lexicon layout board dist rack = top moves
 scoredNonOpeners :: Lexicon -> Layout -> Board -> TileDist -> Rack
                             -> [(Int,Move)]
 scoredNonOpeners lex layout board dist rack = mergeMoves $ map sqLenMoves' sqs
-  where sqs = [(r,c,d,len) | len <- [7], r <- [6], c <- [2], d <- [Across]]
+  where sqs = [(r,c,d,len) | len <- lens, r <- rows, c <- cols, d <- dirs]
         bounds' x = ((r,r'),(c,c')) where ((r,c),(r',c')) = bounds x
         (rows,cols) = both range $ bounds' $ boardPrimes board
         lens = [7,6..1]
@@ -474,25 +476,127 @@ scoredNonOpeners lex layout board dist rack = mergeMoves $ map sqLenMoves' sqs
         sqLenMoves' (r,c,d,len) =
           sqLenMoves layout lex dist board rack (r,c) d len
 
+-- sqLenMoves :: Layout -> Lexicon -> TileDist -> Board -> Rack -> (Int,Int)
+--                      -> Dir -> Int -> [(Int,Move)]
+-- sqLenMoves layout lex dist board rack sq dir len =
+--   mergeMoves $ map movesAt' sets
+--   where sets = if (isJust squares) && touches then
+--                  kSubsets len (Multi.fromList rack)
+--                else []  
+--         squares = squaresAt board sq dir len
+--         touches = (through > 1) || (hooks board (fromJust squares) dir)
+--         through = throughAt board sq dir len
+--         crosses = crossProdsAt board dir (fromJust squares)
+--         movesAt' = movesAt layout lex dist board sq dir through crosses
+
 sqLenMoves :: Layout -> Lexicon -> TileDist -> Board -> Rack -> (Int,Int)
                      -> Dir -> Int -> [(Int,Move)]
 sqLenMoves layout lex dist board rack sq dir len =
-  mergeMoves $ map movesAt' sets
-  where sets = if (isJust squares) && touches then
-                 kSubsets len (Multi.fromList rack)
-               else []  
+  mergeMoves $ map spotMoves' spots
+  where spots = if (isJust squares) && touches then
+                  kSpots len dist rack
+                else []  
         squares = squaresAt board sq dir len
         touches = (through > 1) || (hooks board (fromJust squares) dir)
         through = throughAt board sq dir len
         crosses = crossProdsAt board dir (fromJust squares)
-        movesAt' = movesAt layout lex dist board sq dir through crosses
+        spotMoves' = spotMoves layout lex dist board sq dir through crosses rack
+
+kSpots :: Int -> TileDist -> Rack -> [[Int]]
+kSpots k dist rack = concat $ map Multi.permutations subsets
+  where subsets = kSubsets k $ Multi.fromList scores
+        scores = map (`unsafeLookup` (tileScores dist)) rack
+
+combine' :: Array Int Integer -> [([[Integer]],[Int])] -> [Int] -> [Integer]
+                              -> [Array Int Integer]
+combine' filled []                       indices perm = [filled']
+  where filled' = filled // (zip indices perm)
+combine' filled ((perms',indices'):subs) indices perm =
+  concat $ map (combine' filled' subs indices') perms'
+  where filled' = filled // (zip indices perm)
+  
+combine :: Int -> [([[Integer]],[Int])] -> [[Integer]]
+combine n ((perms,indices):subs) = map elems (concat combined)
+  where combined :: [[Array Int Integer]]
+        combined = map combine'' perms
+        combine'' = combine' (listArray (0,n-1) (repeat 0)) subs indices
+
+subPerms :: TileDist -> [Int] -> Rack -> [([[Integer]],[Int])]
+subPerms dist spot rack = map subPerms $ List.nub . List.sort $ spot
+  where subPerms x = (ofScore x,List.elemIndices x spot)
+        ofScore x = Perm.permuteMultiset $ filter ((== x) . score) rack
+        score x = unsafeLookup x (tileScores dist)
+
+spotPerms :: TileDist -> [Int] -> Rack -> [[Integer]]
+spotPerms dist spot rack = combine (length spot) $ subPerms dist spot rack
+
+spotSetPerms :: TileDist -> [Int] -> TileSet -> [[Integer]]
+spotSetPerms dist spot set = combine (length spot) $ subPerms dist spot set'
+  where set' = toList set
+
+count :: [Int] -> Int -> Int
+count []     _ = 0
+count (x:xs) y = (count xs y) + (if (x==y) then 1 else 0)
+
+subSets :: TileDist -> [Int] -> Rack -> [[TileSet]]
+subSets dist spot rack = map xSubSets $ List.nub . List.sort $ spot
+  where xSubSets x = kSubsets (count spot x) $ ofScore x
+        ofScore x = Multi.fromList $ filter ((== x) . score) rack
+        score x = unsafeLookup x (tileScores dist)
+
+combineSets :: [[TileSet]] -> [TileSet]
+combineSets []           = []
+combineSets [sets]       = sets
+combineSets (sets:sets') = map Multi.disjUnions pairs
+  where pairs = [[set,set'] | set <- sets, set' <- combineSets sets']
+
+spotSets :: TileDist -> [Int] -> Rack -> [TileSet]
+spotSets dist spot rack = combineSets $ subSets dist spot rack
+
+-- spotMoves :: Layout -> Lexicon -> TileDist -> Board -> (Int,Int) -> Dir
+--                     -> Integer -> [Integer] -> Rack -> [Int]
+--                     -> [(Int,Move)]
+-- spotMoves layout lex dist board sq dir through crosses rack spot =
+--   sortBy descendingScore $ map toScoredMove validPerms
+--   where validPerms = filter okay perms
+--         perms = if (isJust squares) then
+--                   spotPerms dist spot rack
+--                 else []
+--         squares = squaresAt board sq dir len
+--         squares' = fromJust squares
+--         --good = isGoodWith lex through $ toList set
+--         len = length spot
+--         okay perm = fits' perm && good perm 
+--         good = isGoodWith lex through
+--         fits' = fits lex crosses
+--         toScoredMove perm = (score,move)
+--           where move = Move perm sq dir
+--                 score = scoreMove layout board dist move
+
+spotMoves :: Layout -> Lexicon -> TileDist -> Board -> (Int,Int) -> Dir
+                    -> Integer -> [Integer] -> Rack -> [Int]
+                    -> [(Int,Move)]
+spotMoves layout lex dist board sq dir through crosses rack spot =
+  mergeMoves $ map movesAt' $ filter good sets
+  where sets = if (isJust squares) then
+                  spotSets dist spot rack
+               else []
+        squares = squaresAt board sq dir len
+        squares' = fromJust squares
+        len = length spot
+        good set = isGoodWith lex through $ toList set
+        fits' = fits lex crosses
+        movesAt' = setMovesAt layout lex dist board sq dir through crosses spot
+        toScoredMove perm = (score,move)
+          where move = Move perm sq dir
+                score = scoreMove layout board dist move
 
 covered :: Board -> (Int,Int) -> Bool
 covered board sq = ((boardPrimes board) ! sq) > 1
 
 safeCovered :: Board -> (Int,Int) -> Bool
 safeCovered board sq = isOnBoard board sq && covered board sq
-  
+
 hooksAt :: Board -> (Int,Int) -> Dir -> Bool
 hooksAt board sq dir = before || after
   where before = safeCovered board beforeSq
@@ -533,6 +637,25 @@ scoreHooks layout board dist dir sqs =
 
 -- Given a set of tiles, a starting square, and a direction, returns a list
 -- of scoring plays, zipped with their scores, from highest to lowest.     
+-- movesAt :: Layout -> Lexicon -> TileDist -> Board -> (Int,Int) -> Dir 
+--                   -> Integer -> [Integer] -> TileSet -> [(Int,Move)]
+-- movesAt layout lex dist board sq dir through crosses set =
+--   map toScoredMove validPerms
+--   where validPerms = filter fits' perms
+--         perms = if (isJust squares) && good then
+--                    descendingPerms dist muls set
+--                 else []
+--         squares = squaresAt board sq dir len
+--         squares' = fromJust squares
+--         good = isGoodWith lex through $ toList set
+--         len = length $ toList set
+--         muls = [2,1,2,2,4,2,2]
+--         --muls = mulsAt layout board dir squares'
+--         fits' = fits lex crosses
+--         toScoredMove perm = (score,move)
+--           where move = Move perm sq dir
+--                 score = scoreMove layout board dist move
+
 movesAt :: Layout -> Lexicon -> TileDist -> Board -> (Int,Int) -> Dir 
                   -> Integer -> [Integer] -> TileSet -> [(Int,Move)]
 movesAt layout lex dist board sq dir through crosses set =
@@ -545,8 +668,26 @@ movesAt layout lex dist board sq dir through crosses set =
         squares' = fromJust squares
         good = isGoodWith lex through $ toList set
         len = length $ toList set
-        muls = [2,1,2,2,4,2,2]
-        --muls = mulsAt layout board dir squares'
+        muls = mulsAt layout board dir squares'
+        fits' = fits lex crosses
+        toScoredMove perm = (score,move)
+          where move = Move perm sq dir
+                score = scoreMove layout board dist move
+
+setMovesAt :: Layout -> Lexicon -> TileDist -> Board -> (Int,Int) -> Dir 
+                     -> Integer -> [Integer] -> [Int] -> TileSet
+                     -> [(Int,Move)]
+setMovesAt layout lex dist board sq dir through crosses spot set =
+  sortBy descendingScore $ map toScoredMove validPerms
+  where validPerms = filter fits' perms
+        perms = if (isJust squares) && good then
+                   spotSetPerms dist spot set
+                else []
+        squares = squaresAt board sq dir len
+        squares' = fromJust squares
+        good = isGoodWith lex through $ toList set
+        len = length $ toList set
+        muls = mulsAt layout board dir squares'
         fits' = fits lex crosses
         toScoredMove perm = (score,move)
           where move = Move perm sq dir
@@ -627,20 +768,21 @@ descendingUniq dist x y = case compare (score x) (score y) of
                             LT -> GT
                             GT -> LT
                             EQ -> compare x y
-  where score x = unsafeLookup x (tileScores dist)                            
-
+  where score x = unsafeLookup x (tileScores dist)
+        
 -- main :: IO ()
 -- main = do
+--   putStrLn "Loading..."
 --   twl <- lexiconFromFile twlFile
---   let rack = fromJust $ readRack twl "PHOBIAS"
---   putStrLn $ showRack twl rack
+--   putStrLn "Loaded TWL."
+--   let board = emptyBoard standard
 --   let english = TileDist (englishScores twl)
---   let perms = permuteBy (descendingUniq english) rack
---   let p = Perm.toPermutation [2,7,3,4,1,5,6]  
---   let ordered = map (Perm.permuteList p) perms    
---   print $ length ordered
---   putStr $ unlines $ map (showRack twl) ordered
-  
+--   let rack = fromJust $ readRack twl "CRASHES"
+--   putStrLn $ showRack twl rack
+--   --let sets = subSets english [4,3,1] rack
+--   let sets = spotSets english [4,3,1] rack
+--   mapM_ print sets
+        
 main :: IO ()
 main = do
   putStrLn "Loading..."
@@ -661,7 +803,7 @@ main = do
     (length moves::Int) (topString::String) (score::Int) (diff::Double)
   let board' = makeMove board top
   putStr $ unlines $ labelBoard standard twl board'
-  let rack' = fromJust $ readRack twl "PHOBIAS"
+  let rack' = fromJust $ readRack twl "MASTERS"
   putStrLn $ showRack twl rack'
   start' <- getCPUTime
   let !moves' = topMoves twl standard board' english rack'
@@ -672,8 +814,5 @@ main = do
   let score' = scoreMove standard board' english top'
   printf "found %i top moves (such as %s for %i) in %0.5fs\n"
     (length moves'::Int) (topString'::String) (score'::Int) (diff'::Double)
-  putStrLn "all moves:"
-  let allMoves = scoredNonOpeners twl standard board' english rack'
-  putStr $ unlines $ map (show . (second (showMove twl board'))) allMoves
-  --let hospiab = fromJust $ readMove twl "7c HOSBIAP"
-  --print $ scoreMove standard board' english hospiab
+  --putStrLn "top moves:"
+  --mapM_ print $ map (showMove twl board') moves'
