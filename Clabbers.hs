@@ -411,10 +411,10 @@ nextSq (row,col) Across = (row,col+1)
 squaresAt :: Board -> (Int,Int) -> Dir -> Int -> Maybe [(Int,Int)]
 squaresAt _     _  _   0   = Just []
 squaresAt board sq dir len = do
-  let primes = boardPrimes board
   sqHere <- safeSquare board sq
+  let sqHereLen = if null sqHere then 0 else 1
   let sq' = nextSq sq dir
-  let len' = len-(length sqHere)
+  let len' = len-sqHereLen
   moreSqs <- squaresAt board sq' dir len' 
   return $ sqHere ++ moreSqs
   
@@ -432,7 +432,7 @@ fitsAt lex cross p = member (p*cross) (lexiconSet lex)
   
 fits :: Lexicon -> [Integer] -> [Integer] -> Bool
 fits _   []       _    = True
-fits lex (c:cs) (p:ps) = (fitsAt lex c p) && (fits lex cs ps)
+fits lex cs ps = and $ zipWith (fitsAt lex) cs ps
 
 throughSqsAt :: Board -> (Int,Int) -> Dir -> Int -> [(Int,Int)]
 throughSqsAt _     _  _   (-1) = []
@@ -487,7 +487,17 @@ sqLenMoves layout lex dist board rack sq dir len =
         touches = (through > 1) || (hooks board (fromJust squares) dir)
         through = throughAt board sq dir len
         crosses = crossProdsAt board dir (fromJust squares)
-        spotMoves' = spotMoves layout lex dist board sq dir through crosses rack
+        wMul = product $ map ((layoutXWS layout) !) newSqs
+        muls = mulsAt layout board dir newSqs
+        newSqs = fromJust $ squaresAt board sq dir len
+        oldScore = sum $ map (`unsafeLookup` scores) oldTiles
+        oldTiles = throughTilesAt board sq dir len
+        bonus = if len >= 7 then 50 else 0
+        hookScore = scoreHooks layout board dist dir newSqs
+        scores = tileScores dist
+        baseScore = bonus+hookScore+wMul*oldScore
+        spotMoves' = spotMoves layout lex dist board sq dir through crosses
+                               rack baseScore wMul muls
 
 kSpots :: Int -> TileDist -> Rack -> [[Int]]
 kSpots k dist rack = concat $ map Multi.permutations subsets
@@ -541,9 +551,10 @@ spotSets :: TileDist -> [Int] -> Rack -> [TileSet]
 spotSets dist spot rack = combineSets $ subSets dist spot rack
 
 spotMoves :: Layout -> Lexicon -> TileDist -> Board -> (Int,Int) -> Dir
-                    -> Integer -> [Integer] -> Rack -> [Int]
-                    -> [(Int,Move)]
-spotMoves layout lex dist board sq dir through crosses rack spot =
+                    -> Integer -> [Integer] -> Rack -> Int -> Int -> [Int]
+                    -> [Int] -> [(Int,Move)]
+spotMoves layout lex dist board sq dir through crosses rack
+                 baseScore wMul muls spot =
   concatMap movesAt $ filter good sets
   where sets = if (isJust squares) then
                   spotSets dist spot rack
@@ -552,10 +563,9 @@ spotMoves layout lex dist board sq dir through crosses rack spot =
         squares' = fromJust squares
         len = length spot
         good set = isGoodWith lex through $ toList set
-        fits' = fits lex crosses
         movesAt = setMovesAt layout lex dist board sq dir through
                              crosses score spot
-        score = scoreSpot layout board dist sq dir spot
+        score = scoreSpot baseScore wMul muls spot
 
 covered :: Board -> (Int,Int) -> Bool
 covered board sq = ((boardPrimes board) ! sq) > 1
@@ -689,18 +699,10 @@ scoreMove layout board dist (Move word sq dir) = score
         hookScore = scoreHooks layout board dist dir newSqs
         scores = tileScores dist
 
-scoreSpot :: Layout -> Board -> TileDist -> (Int,Int) -> Dir -> [Int] -> Int
-scoreSpot layout board dist sq dir spot = score
-  where score = bonus+hookScore+wMul*(newScore+oldScore)
-        wMul = product $ map ((layoutXWS layout) !) newSqs
+scoreSpot :: Int -> Int -> [Int] -> [Int] -> Int
+scoreSpot baseScore wMul muls spot = score
+  where score = baseScore+wMul*newScore
         newScore = sum $ zipWith (*) muls spot
-        muls = mulsAt layout board dir newSqs
-        newSqs = fromJust $ squaresAt board sq dir $ length spot
-        oldScore = sum $ map (`unsafeLookup` scores) oldTiles
-        oldTiles = throughTilesAt board sq dir $ length spot
-        bonus = if length spot >= 7 then 50 else 0
-        hookScore = scoreHooks layout board dist dir newSqs
-        scores = tileScores dist
 
 descendingUniq dist x y = case compare (score x) (score y) of
                             LT -> GT
@@ -715,7 +717,7 @@ main = do
   putStrLn "Loaded TWL."
   let board = emptyBoard standard
   let english = TileDist (englishScores twl)
-  let rack = fromJust $ readRack twl "QIZAXUJ"
+  let rack = fromJust $ readRack twl "QUIZJAX"
   putStrLn $ showRack twl rack
   start <- getCPUTime
   let !moves = topMoves twl standard board english rack
@@ -728,16 +730,18 @@ main = do
     (length moves::Int) (topString::String) (score::Int) (diff::Double)
   let board' = makeMove board top
   putStr $ unlines $ labelBoard standard twl board'
-  let rack' = fromJust $ readRack twl "MGWUMPS"
+  let rack' = fromJust $ readRack twl "PHOBIAS"
   putStrLn $ showRack twl rack'
   start' <- getCPUTime
   let !moves' = topMoves twl standard board' english rack'
   end' <- getCPUTime
+  let top' = head moves'      
   let diff' = fromIntegral (end'-start') / (10^12)
-  let top' = head moves'
   let topString' = showMove twl board' top'
   let score' = scoreMove standard board' english top'
   printf "found %i top moves (such as %s for %i) in %0.5fs\n"
     (length moves'::Int) (topString'::String) (score'::Int) (diff'::Double)
+  --printf "found the top move (%s for %i) in %0.5fs\n"
+  --  (topString'::String) (score'::Int) (diff'::Double)      
   --putStrLn "top moves:"
   --mapM_ print $ map (showMove twl board') moves'
