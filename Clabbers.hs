@@ -420,7 +420,7 @@ squaresAt board sq dir len = do
   
 mulAt :: Layout -> Board -> Dir -> (Int,Int) -> Int
 mulAt layout board dir sq = ways * xls
-  where ways = if (hooksAt board sq dir) then 2 else 1
+  where ways = if (hooksAt board dir sq) then 2 else 1
         xls = (layoutXLS layout) ! sq
         
 mulsAt :: Layout -> Board -> Dir -> [(Int,Int)] -> [Int]
@@ -555,13 +555,8 @@ spotMoves :: Layout -> Lexicon -> TileDist -> Board -> (Int,Int) -> Dir
                     -> [Int] -> [(Int,Move)]
 spotMoves layout lex dist board sq dir through crosses rack
                  baseScore wMul muls spot =
-  concatMap movesAt $ filter good sets
-  where sets = if (isJust squares) then
-                  spotSets dist spot rack
-               else []
-        squares = squaresAt board sq dir len
-        squares' = fromJust squares
-        len = length spot
+  mergeMoves $ map movesAt $ filter good sets
+  where sets = spotSets dist spot rack
         good set = isGoodWith lex through $ toList set
         movesAt = setMovesAt layout lex dist board sq dir through
                              crosses score spot
@@ -573,16 +568,15 @@ covered board sq = ((boardPrimes board) ! sq) > 1
 safeCovered :: Board -> (Int,Int) -> Bool
 safeCovered board sq = isOnBoard board sq && covered board sq
 
-hooksAt :: Board -> (Int,Int) -> Dir -> Bool
-hooksAt board sq dir = before || after
+hooksAt :: Board -> Dir -> (Int,Int) -> Bool
+hooksAt board dir sq = before || after
   where before = safeCovered board beforeSq
         after = safeCovered board afterSq
         beforeSq = prevSq sq $ crossDir dir
         afterSq = nextSq sq $ crossDir dir
         
 hooks :: Board -> [(Int,Int)] -> Dir -> Bool
-hooks _     []       _   = False
-hooks board (sq:sqs) dir = hooksAt board sq dir || hooks board sqs dir
+hooks board sqs dir = any (hooksAt board dir) sqs
 
 connected :: Board -> Dir -> Bool -> (Int,Int) -> [(Int,Int)]
 connected board dir fwd sq = if safeCovered board next then
@@ -617,14 +611,9 @@ setMovesAt :: Layout -> Lexicon -> TileDist -> Board -> (Int,Int) -> Dir
 setMovesAt layout lex dist board sq dir through crosses score spot set =
   map toScoredMove validPerms
   where validPerms = filter fits' perms
-        perms = if (isJust squares) && good then
-                   spotSetPerms dist spot set
-                else []
-        squares = squaresAt board sq dir len
-        squares' = fromJust squares
+        perms = if good then spotSetPerms dist spot set else []
         good = isGoodWith lex through $ toList set
-        len = length $ toList set
-        muls = mulsAt layout board dir squares'
+        len = length spot
         fits' = fits lex crosses
         toScoredMove perm = (score,Move perm sq dir)
 
@@ -715,30 +704,30 @@ main = do
   putStrLn "Loading..."
   twl <- lexiconFromFile twlFile
   putStrLn "Loaded TWL."
-  let board = emptyBoard standard
-  let english = TileDist (englishScores twl)
-  let rack = fromJust $ readRack twl "QUIZJAX"
+  let !board = emptyBoard standard
+  let !english = TileDist (englishScores twl)
+  let !rack = fromJust $ readRack twl "QUIZJAX"
   putStrLn $ showRack twl rack
   start <- getCPUTime
   let !moves = topMoves twl standard board english rack
   end <- getCPUTime
   let diff = fromIntegral (end-start) / (10^12)
-  let top = head moves
-  let topString = showMove twl board top
-  let score = scoreMove standard board english top    
+  let !top = head moves
+  let !topString = showMove twl board top
+  let !score = scoreMove standard board english top    
   printf "found %i top moves (such as %s for %i) in %0.5fs\n"
     (length moves::Int) (topString::String) (score::Int) (diff::Double)
-  let board' = makeMove board top
+  let !board' = makeMove board top
   putStr $ unlines $ labelBoard standard twl board'
-  let rack' = fromJust $ readRack twl "PHOBIAS"
+  let !rack' = fromJust $ readRack twl "PHOBIAS"
   putStrLn $ showRack twl rack'
   start' <- getCPUTime
   let !moves' = topMoves twl standard board' english rack'
   end' <- getCPUTime
-  let top' = head moves'      
-  let diff' = fromIntegral (end'-start') / (10^12)
-  let topString' = showMove twl board' top'
-  let score' = scoreMove standard board' english top'
+  let !top' = head moves'      
+  let !diff' = fromIntegral (end'-start') / (10^12)
+  let !topString' = showMove twl board' top'
+  let !score' = scoreMove standard board' english top'
   printf "found %i top moves (such as %s for %i) in %0.5fs\n"
     (length moves'::Int) (topString'::String) (score'::Int) (diff'::Double)
   --printf "found the top move (%s for %i) in %0.5fs\n"
