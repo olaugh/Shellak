@@ -485,8 +485,9 @@ scoredNonOpeners lex layout board dist rack = mergeMoves $ map sqLenMoves' sqs
           sqLenMoves layout lex dist board rack (r,c) d len
 
 touch :: Board -> ((Int,Int),Dir,Int) -> Bool
-touch board (sq,dir,len) = (isJust squares) && touches
+touch board (sq,dir,len) = (isJust squares) && starts && touches
   where squares = squaresAt board sq dir len
+        starts = not $ safeCovered board $ prevSq sq dir
         touches = (through > 1) || (hooks board (fromJust squares) dir)
         through = throughAt board sq dir len
 
@@ -542,7 +543,6 @@ couldFit :: Lexicon -> TileDist -> [Integer] -> Rack -> Multiset Int -> Bool
 couldFit lex dist crosses rack set = all anyFits crosses
   where anyFits cross = cross==1 || any (isGoodWithProd lex cross) rack
 
-
 countsHas :: (Eq a) => [(a,Int)] -> a -> Bool
 countsHas counts x = any (\(y,n) -> y==x && n>0) counts
 
@@ -571,6 +571,17 @@ constrainedPerms set (c:cs) = concatMap perms c
         perms' x = if null cs then [[x]]
                    else map ((:) x) $ constrainedPerms (msMinus set x) cs
 
+sortUniq :: (Ord a) => [a] -> [a]
+sortUniq x = map head $ List.group $ List.sort x
+
+constraints :: Lexicon -> TileDist -> [Integer] -> [Integer] -> [[Int]]
+constraints lex dist crosses rack = map workWith crosses
+  where
+    scores = map (`unsafeLookup` (tileScores dist)) rack
+    workWith cross = sortUniq $ if cross==1 then scores else workingScrs cross
+    workingScrs cross = map (`unsafeLookup` (tileScores dist)) $ working cross
+    working cross = filter (\x -> isGoodWith lex cross [x]) rack
+          
 scoredSetSpots :: Lexicon -> Layout -> Board -> TileDist -> Rack
                           -> [(Int,((Int,Int),Dir,[Int]))]
 scoredSetSpots lex layout board dist rack = sortBy descendingScore scored
@@ -582,9 +593,11 @@ scoredSetSpots lex layout board dist rack = sortBy descendingScore scored
           where
             good (prod,_) = isGoodWithProd lex thru prod
             scoredSpots' (_,set) = if couldFit' set then
-                                     map scoredSpot $ Multi.permutations set
+                                     map scoredSpot $ perms set
                                    else []
               where scoredSpot x = (scoreSpot baseScore wMul muls x,(sq,dir,x))
+            perms set = constrainedPerms set constraints'
+            constraints' = constraints lex dist crosses rack
             couldFit' = couldFit lex dist crosses rack
             newSqs = fromJust $ squaresAt board sq dir len
             crosses = crossProdsAt board dir newSqs
@@ -700,6 +713,8 @@ spotMoves layout lex dist board sq dir through crosses rack
 covered :: Board -> (Int,Int) -> Bool
 covered board sq = ((boardPrimes board) ! sq) > 1
 
+-- True if on board and containing a tile
+-- False if empty or not on the board
 safeCovered :: Board -> (Int,Int) -> Bool
 safeCovered board sq = isOnBoard board sq && covered board sq
 
@@ -860,9 +875,8 @@ main = do
   --   (length moves::Int) (topString::String) (score::Int) (diff::Double)
   let !board' = makeMove board top
   putStr $ unlines $ labelBoard standard twl board'
-  -- let !rack' = fromJust $ readRack twl "PHOBIAS"
-  let !rack' = fromJust $ readRack twl "JIGABOO"
-  putStrLn $ showRack twl rack'
+  let !rack' = fromJust $ readRack twl "AEOUJLS"
+  putStrLn $ showRack twl rack' 
   start' <- getCPUTime
   --let !moves' = topMoves twl standard board' english rack'
   --let !spots = nonOpenerSpots board' english rack'
@@ -872,9 +886,9 @@ main = do
   let !scored = scoredSetSpots twl standard board' english rack'
   end' <- getCPUTime
   let diff' = fromIntegral (end'-start') / (10^12)
-  printf "found %i in %0.5fs\n"
+  printf "found %i spots in %0.5fs\n"
     (length scored::Int) (diff'::Double)
-  mapM_ print $ take 5 scored
+  mapM_ print $ take 200 scored
   --let !top' = head moves'      
   --let !diff' = fromIntegral (end'-start') / (10^12)
   --let !topString' = showMove twl board' top'
