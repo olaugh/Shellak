@@ -30,7 +30,8 @@ import Data.Numbers.Primes as Primes
 import Data.Ord (comparing)
 import Data.Set (Set, member)
 import qualified Data.Set as Set
-import Math.Combinatorics.Multiset (Multiset, kSubsets, permutations, toList)
+import Math.Combinatorics.Multiset (Multiset, kSubsets, permutations, toList,
+                                    fromCounts, toCounts)
 import qualified Math.Combinat.Permutations as Perm
 import qualified Math.Combinatorics.Multiset as Multi
 import System.CPUTime
@@ -540,7 +541,35 @@ scoredSpots layout board dist rack = sortBy descendingScore scored
 couldFit :: Lexicon -> TileDist -> [Integer] -> Rack -> Multiset Int -> Bool
 couldFit lex dist crosses rack set = all anyFits crosses
   where anyFits cross = cross==1 || any (isGoodWithProd lex cross) rack
-                           
+
+
+countsHas :: (Eq a) => [(a,Int)] -> a -> Bool
+countsHas counts x = any (\(y,n) -> y==x && n>0) counts
+
+countsMinus :: (Eq a) => [(a,Int)] -> a -> [(a,Int)]
+countsMinus ((y,n):cs) x = if x==y then (x,n-1):cs
+                           else (y,n):(countsMinus cs x)
+
+msHas :: (Eq a) => Multiset a -> a -> Bool
+msHas set x = countsHas (toCounts set) x
+
+nonZero :: (Eq a) => (a,Int) -> Bool
+nonZero (_,0) = False
+nonZero _     = True
+
+msMinus :: (Eq a) => Multiset a -> a -> Multiset a
+msMinus set x = fromCounts $ filter nonZero $ countsMinus (toCounts set) x
+
+permsStartingWith :: (Eq a) => Multiset a -> [[a]] -> a -> [[a]]
+permsStartingWith set cs x = if msHas set x then perms' x else []
+  where perms' x = map ((:) x) $ Multi.permutations (msMinus set x)
+
+constrainedPerms :: (Eq a) => Multiset a -> [[a]] -> [[a]]
+constrainedPerms set []     = []
+constrainedPerms set (c:cs) = concatMap perms c
+  where perms x = if msHas set x then perms' x else []
+        perms' x = if null cs then [[x]]
+                   else map ((:) x) $ constrainedPerms (msMinus set x) cs
 
 scoredSetSpots :: Lexicon -> Layout -> Board -> TileDist -> Rack
                           -> [(Int,((Int,Int),Dir,[Int]))]
@@ -805,6 +834,12 @@ descendingUniq dist x y = case compare (score x) (score y) of
                             EQ -> compare x y
   where score x = unsafeLookup x (tileScores dist)
         
+-- main :: IO ()
+-- main = do
+-- --  print $ permsStartingWith (Multi.fromList "ABC") ["B","C"] 'C'
+--   mapM_ print $ constrainedPerms (Multi.fromList "ABCDEFG")
+--     ["ABCDEFG","B","ABCDEFG","D","ABCDEFG","ABCDEFG","ABCDEFG"]
+  
 main :: IO ()
 main = do
   putStrLn "Loading..."
