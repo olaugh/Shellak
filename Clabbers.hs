@@ -109,6 +109,9 @@ isGoodIn lex word = member (product word) (lexiconSet lex)
 isGoodWith :: Lexicon -> Integer -> [Integer] -> Bool
 isGoodWith lex through word = member (through*(product word)) (lexiconSet lex)
 
+isGoodWithProd :: Lexicon -> Integer -> Integer -> Bool
+isGoodWithProd lex through prod = member (through*prod) (lexiconSet lex)
+
 type TileSet = Multiset Integer
 
 data TileDist = TileDist (Map Integer Int)
@@ -251,6 +254,10 @@ isAsciiAlpha :: Char -> Bool
 isAsciiAlpha c = isAlpha c && isAscii c
 
 data Dir = Down | Across
+instance Show Dir where
+  show Down   = "Down"
+  show Across = "Acrs"
+  
 data Move = Move [Integer] (Int,Int) Dir
 
 -- So, this is not how you're supposed to use Maybe, but I didn't know any
@@ -468,7 +475,7 @@ topMoves lexicon layout board dist rack = top moves
 scoredNonOpeners :: Lexicon -> Layout -> Board -> TileDist -> Rack
                             -> [(Int,Move)]
 scoredNonOpeners lex layout board dist rack = mergeMoves $ map sqLenMoves' sqs
-  where sqs = [(r,c,d,len) | len <- lens, r <- rows, c <- cols, d <- dirs]
+  where sqs = [(r,c,d,len) | len <- [7], r <- [0], c <- [0], d <- dirs]
         bounds' x = ((r,r'),(c,c')) where ((r,c),(r',c')) = bounds x
         (rows,cols) = both range $ bounds' $ boardPrimes board
         lens = [7,6..1]
@@ -476,6 +483,91 @@ scoredNonOpeners lex layout board dist rack = mergeMoves $ map sqLenMoves' sqs
         sqLenMoves' (r,c,d,len) =
           sqLenMoves layout lex dist board rack (r,c) d len
 
+touch :: Board -> ((Int,Int),Dir,Int) -> Bool
+touch board (sq,dir,len) = (isJust squares) && touches
+  where squares = squaresAt board sq dir len
+        touches = (through > 1) || (hooks board (fromJust squares) dir)
+        through = throughAt board sq dir len
+
+addThrough :: Board -> ((Int,Int),Dir,Int) -> ((Int,Int),Dir,Int,Integer)
+addThrough board (sq,dir,len) = (sq,dir,len,through)
+  where through = throughAt board sq dir len
+
+sqsThatTouch :: Board -> Int -> [((Int,Int),Dir,Int,Integer)]
+sqsThatTouch board rackSize =
+  map (addThrough board) $ filter (touch board) sqs
+  where sqs = [((r,c),d,len) | len <- lens, r <- rows, c <- cols, d <- dirs]
+        bounds' x = ((r,r'),(c,c')) where ((r,c),(r',c')) = bounds x
+        (rows,cols) = both range $ bounds' $ boardPrimes board
+        lens = [7,6..1]
+        dirs = [Down, Across]
+        
+nonOpenerSpots :: Board -> TileDist -> Rack
+                        -> [((Int,Int),Dir,[[Int]],Integer)]
+nonOpenerSpots board dist rack = map kSpots' sqs
+  where maxLen = length rack
+        sqs = sqsThatTouch board maxLen
+        kSpots' (sq,dir,len,thru) = (sq,dir,kSpots len dist rack,thru)
+
+nonOpenerSetSpots :: Board -> TileDist -> Rack
+                           -> [((Int,Int),Dir,Int,[(Integer,Multiset Int)],Integer)]
+nonOpenerSetSpots board dist rack = map kSetSpots' sqs
+  where maxLen = length rack
+        sqs = sqsThatTouch board maxLen
+        kSetSpots' (sq,dir,len,thru) = (sq,dir,len,kSets len dist rack,thru)
+
+scoredSpots :: Layout -> Board -> TileDist -> Rack
+                      -> [(Int,((Int,Int),Dir,[Int],Integer))]
+scoredSpots layout board dist rack = sortBy descendingScore scored
+  where scored = concatMap spotInfo spots
+        spots = nonOpenerSpots board dist rack
+        spotInfo (sq,dir,xs,thru) = map scoredSpot xs
+          where
+            scoredSpot x = (score,(sq,dir,x,thru))
+              where
+                score = scoreSpot baseScore wMul muls x
+                wMul = product $ map ((layoutXWS layout) !) newSqs
+                baseScore = bonus+hookScore+wMul*oldScore
+                len = length x
+                bonus = if len >= 7 then 50 else 0
+                hookScore = scoreHooks layout board dist dir newSqs
+                oldScore = sum $ map (`unsafeLookup` scores) oldTiles
+                oldTiles = throughTilesAt board sq dir len
+                scores = tileScores dist                
+                newSqs = fromJust $ squaresAt board sq dir len
+                muls = mulsAt layout board dir newSqs
+
+couldFit :: Lexicon -> TileDist -> [Integer] -> Rack -> Multiset Int -> Bool
+couldFit lex dist crosses rack set = all anyFits crosses
+  where anyFits cross = cross==1 || any (isGoodWithProd lex cross) rack
+                           
+
+scoredSetSpots :: Lexicon -> Layout -> Board -> TileDist -> Rack
+                          -> [(Int,((Int,Int),Dir,[Int]))]
+scoredSetSpots lex layout board dist rack = sortBy descendingScore scored
+  where scored = concatMap spotInfo spots
+        spots = nonOpenerSetSpots board dist rack
+        spotInfo :: ((Int,Int),Dir,Int,[(Integer,Multiset Int)],Integer)
+                    -> [(Int,((Int,Int),Dir,[Int]))]
+        spotInfo (sq,dir,len,xs,thru) = concatMap scoredSpots' $ filter good xs
+          where
+            good (prod,_) = isGoodWithProd lex thru prod
+            scoredSpots' (_,set) = if couldFit' set then
+                                     map scoredSpot $ Multi.permutations set
+                                   else []
+              where scoredSpot x = (scoreSpot baseScore wMul muls x,(sq,dir,x))
+            couldFit' = couldFit lex dist crosses rack
+            newSqs = fromJust $ squaresAt board sq dir len
+            crosses = crossProdsAt board dir newSqs
+            muls = mulsAt layout board dir newSqs
+            wMul = product $ map ((layoutXWS layout) !) newSqs
+            baseScore = bonus+hookScore+wMul*oldScore
+            bonus = if len >= 7 then 50 else 0
+            hookScore = scoreHooks layout board dist dir newSqs
+            oldScore = sum $ map (`unsafeLookup` scores) oldTiles
+            oldTiles = throughTilesAt board sq dir len
+            scores = tileScores dist                
+     
 sqLenMoves :: Layout -> Lexicon -> TileDist -> Board -> Rack -> (Int,Int)
                      -> Dir -> Int -> [(Int,Move)]
 sqLenMoves layout lex dist board rack sq dir len =
@@ -492,7 +584,7 @@ sqLenMoves layout lex dist board rack sq dir len =
         newSqs = fromJust $ squaresAt board sq dir len
         oldScore = sum $ map (`unsafeLookup` scores) oldTiles
         oldTiles = throughTilesAt board sq dir len
-        bonus = if len >= 7 then 50 else 0
+        bonus = if len >= 7 then 50 else 0        
         hookScore = scoreHooks layout board dist dir newSqs
         scores = tileScores dist
         baseScore = bonus+hookScore+wMul*oldScore
@@ -503,6 +595,20 @@ kSpots :: Int -> TileDist -> Rack -> [[Int]]
 kSpots k dist rack = concat $ map Multi.permutations subsets
   where subsets = kSubsets k $ Multi.fromList scores
         scores = map (`unsafeLookup` (tileScores dist)) rack
+
+kSetSpots :: Int -> TileDist -> Rack -> [(Integer,[[Int]])]
+kSetSpots k dist rack = map prodSet rackSets
+  where rackSets = kSubsets k $ Multi.fromList rack
+        prodSet set = (product $ toList set,spots set)
+        spots set = Multi.permutations $ Multi.fromList $ setScores $ toList set
+        setScores set = map (`unsafeLookup` (tileScores dist)) set
+
+kSets :: Int -> TileDist -> Rack -> [(Integer,Multiset Int)]
+kSets k dist rack = map prodSet rackSets
+  where rackSets = kSubsets k $ Multi.fromList rack
+        prodSet set = (product $ toList set,scoreSet set)
+        scoreSet set = Multi.fromList $ setScores $ toList set
+        setScores set = map (`unsafeLookup` (tileScores dist)) set
 
 combine' :: Array Int Integer -> [([[Integer]],[Int])] -> [Int] -> [Integer]
                               -> [Array Int Integer]
@@ -715,21 +821,31 @@ main = do
   let !top = head moves
   let !topString = showMove twl board top
   let !score = scoreMove standard board english top    
-  printf "found %i top moves (such as %s for %i) in %0.5fs\n"
-    (length moves::Int) (topString::String) (score::Int) (diff::Double)
+  -- printf "found %i top moves (such as %s for %i) in %0.5fs\n"
+  --   (length moves::Int) (topString::String) (score::Int) (diff::Double)
   let !board' = makeMove board top
   putStr $ unlines $ labelBoard standard twl board'
-  let !rack' = fromJust $ readRack twl "PHOBIAS"
+  -- let !rack' = fromJust $ readRack twl "PHOBIAS"
+  let !rack' = fromJust $ readRack twl "JIGABOO"
   putStrLn $ showRack twl rack'
   start' <- getCPUTime
-  let !moves' = topMoves twl standard board' english rack'
+  --let !moves' = topMoves twl standard board' english rack'
+  --let !spots = nonOpenerSpots board' english rack'
+  --let !nSpots = sum $ map (\(_,_,x) -> length x) spots
+  --let !scored = scoredSpots standard board' english rack'
+  --let !spots = nonOpenerSetSpots board' english rack'
+  let !scored = scoredSetSpots twl standard board' english rack'
   end' <- getCPUTime
-  let !top' = head moves'      
-  let !diff' = fromIntegral (end'-start') / (10^12)
-  let !topString' = showMove twl board' top'
-  let !score' = scoreMove standard board' english top'
-  printf "found %i top moves (such as %s for %i) in %0.5fs\n"
-    (length moves'::Int) (topString'::String) (score'::Int) (diff'::Double)
+  let diff' = fromIntegral (end'-start') / (10^12)
+  printf "found %i in %0.5fs\n"
+    (length scored::Int) (diff'::Double)
+  mapM_ print $ take 5 scored
+  --let !top' = head moves'      
+  --let !diff' = fromIntegral (end'-start') / (10^12)
+  --let !topString' = showMove twl board' top'
+  --let !score' = scoreMove standard board' english top'
+  --printf "found %i top moves (such as %s for %i) in %0.5fs\n"
+  --  (length moves'::Int) (topString'::String) (score'::Int) (diff'::Double)
   --printf "found the top move (%s for %i) in %0.5fs\n"
   --  (topString'::String) (score'::Int) (diff'::Double)      
   --putStrLn "top moves:"
