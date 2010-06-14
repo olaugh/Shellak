@@ -478,14 +478,31 @@ topMoves lexicon layout board dist rack = top moves
 
 scoredNonOpeners :: Lexicon -> Layout -> Board -> TileDist -> Rack
                             -> [(Int,Move)]
-scoredNonOpeners lex layout board dist rack = mergeMoves $ map sqLenMoves' sqs
-  where sqs = [(r,c,d,len) | len <- [7], r <- [0], c <- [0], d <- dirs]
-        bounds' x = ((r,r'),(c,c')) where ((r,c),(r',c')) = bounds x
-        (rows,cols) = both range $ bounds' $ boardPrimes board
-        lens = [7,6..1]
-        dirs = [Down, Across]
-        sqLenMoves' (r,c,d,len) =
-          sqLenMoves layout lex dist board rack (r,c) d len
+scoredNonOpeners lex layout board dist rack = mergeMoves $ map spotMoves' spots
+  where spots = scoredSetSpots lex layout board dist rack
+        spotMoves' = setSpotMoves lex board dist rack
+        
+tileConstraints :: Lexicon -> TileDist -> [Integer] -> [Int] -> Rack
+                           -> [[Integer]]
+tileConstraints lex dist crosses set rack = zipWith workWith crosses set
+  where
+    scores = map (`unsafeLookup` (tileScores dist)) rack
+    ofScore x = filter ((== x) . score) rack
+    score x = unsafeLookup x (tileScores dist)
+    workWith cross scr = sortUniq $ if cross==1 then ofScore scr
+                                    else working cross $ ofScore scr
+    working cross tiles = filter (\x -> isGoodWith lex cross [x]) tiles
+
+setSpotMoves :: Lexicon -> Board -> TileDist -> Rack
+                        -> (Int,((Int,Int),Dir,TileSet,[Int]))
+                        -> [(Int,Move)]
+setSpotMoves lex board dist rack (scr,(sq,dir,tileSet,set)) =
+  map toScoredMove perms
+  where perms = constrainedPerms tileSet (constraints' tileSet)
+        constraints' tileSet = tileConstraints lex dist crosses set (toList tileSet)
+        crosses = crossProdsAt board dir newSqs
+        newSqs = fromJust $ squaresAt board sq dir (length set)
+        toScoredMove perm = (scr,Move perm sq dir) 
 
 touch :: Board -> ((Int,Int),Dir,Int) -> Bool
 touch board (sq,dir,len) = (isJust squares) && starts && touches
@@ -849,22 +866,20 @@ main = do
   let !score = scoreMove standard board english top    
   let !board' = makeMove board top
   putStr $ unlines $ labelBoard standard twl board'
-  let !rack' = fromJust $ readRack twl "AEOUJLS"
+  let !rack' = fromJust $ readRack twl "MUGWMPS"
   putStrLn $ showRack twl rack' 
   start' <- getCPUTime
-  let !scored = scoredSetSpots twl standard board' english rack'
+  --let !scored = scoredSetSpots twl standard board' english rack'
+  let !moves' = topMoves twl standard board' english rack'
   end' <- getCPUTime
   let diff' = fromIntegral (end'-start') / (10^12)
-  printf "found %i spots in %0.5fs\n"
-    (length scored::Int) (diff'::Double)
-  mapM_ putStrLn $ map (showScoredSetSpot twl) scored
-  --let !top' = head moves'      
-  --let !diff' = fromIntegral (end'-start') / (10^12)
-  --let !topString' = showMove twl board' top'
-  --let !score' = scoreMove standard board' english top'
+  --printf "found %i spots in %0.5fs\n"
+  --  (length scored::Int) (diff'::Double)
+  --mapM_ putStrLn $ map (showScoredSetSpot twl) scored
+  let !top' = head moves'      
+  let !topString' = showMove twl board' top'
+  let !score' = scoreMove standard board' english top'
+  printf "found a top move (%s for %i) in %0.5fs\n"
+    (topString'::String) (score'::Int) (diff'::Double)
   --printf "found %i top moves (such as %s for %i) in %0.5fs\n"
   --  (length moves'::Int) (topString'::String) (score'::Int) (diff'::Double)
-  --printf "found the top move (%s for %i) in %0.5fs\n"
-  --  (topString'::String) (score'::Int) (diff'::Double)      
-  --putStrLn "top moves:"
-  --mapM_ print $ map (showMove twl board') moves'
