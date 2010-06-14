@@ -146,15 +146,16 @@ standardText =  ["3W .. .. 2L .. .. .. 3W .. .. .. 2L .. .. 3W"
                 ,".. 2W .. .. .. 3L .. .. .. 3L .. .. .. 2W .."
                 ,"3W .. .. 2L .. .. .. 3W .. .. .. 2L .. .. 3W"]
 
-type IntGrid = Array (Int,Int)
-textMuls :: [String] -> Char -> (IntGrid Int)
+type Sq = (Int,Int)
+type SqGrid = Array Sq
+textMuls :: [String] -> Char -> (SqGrid Int)
 textMuls grid c = listsArray $ map stringMul grid
   where stringMul = map parseMul . words
         parseMul ['2',x] = if x == c then 2 else 1
         parseMul ['3',x] = if x == c then 3 else 1
         parseMul _       = 1
 
-gridSize :: IntGrid a -> (Int,Int)
+gridSize :: SqGrid a -> (Int,Int)
 gridSize grid = (xmax+1,ymax+1)
     where (_,(xmax,ymax)) = bounds grid
 
@@ -175,7 +176,7 @@ splitAtEach n []  = []
 splitAtEach n abc = a:splitAtEach n bc
   where (a,bc) = splitAt n abc
 
-data Board = Board Bool (IntGrid Integer)
+data Board = Board Bool (SqGrid Integer)
 boardIsEmpty (Board empty _      ) = empty
 boardPrimes  (Board _      primes) = primes
 
@@ -183,7 +184,7 @@ emptyBoard :: Layout -> Board
 emptyBoard layout =
   Board True (listArray (bounds (layoutXWS layout)) (repeat 0))
 
-data Layout = Layout (IntGrid Int) (IntGrid Int) (Int,Int)
+data Layout = Layout (SqGrid Int) (SqGrid Int) (Int,Int)
 layoutXWS   (Layout xws _ s) = xws
 layoutXLS   (Layout _ xls s) = xls
 layoutStart (Layout _ _   s) = s
@@ -259,7 +260,7 @@ instance Show Dir where
   show Down   = "Down"
   show Across = "Acrs"
   
-data Move = Move [Integer] (Int,Int) Dir
+data Move = Move [Integer] Sq Dir
 
 -- So, this is not how you're supposed to use Maybe, but I didn't know any
 -- better when I wrote it. At some point when I have nothing exciting to do,
@@ -313,7 +314,7 @@ markThrough board new old = concat $ map renderChunk chunks
         chunks = map unzip $ groupBy sameGroup $ zip isNew letters
         sameGroup (x,_) (y,_) = x == y
 
-showPos :: (Int,Int) -> Dir -> String
+showPos :: Sq -> Dir -> String
 showPos sq@(row,col) dir = case dir of
                              Across -> num ++ alpha
                              Down   -> alpha ++ num
@@ -391,7 +392,7 @@ openersAt layout dist set col = map toScoredMove perms
           where move = Move perm sq Across
                 score = scoreOpener layout dist move
     
-onBoard :: Board -> (Int,Int) -> Maybe (Int,Int)
+onBoard :: Board -> Sq -> Maybe Sq
 onBoard board (row,col) | row < 0      = Nothing
                         | col < 0      = Nothing
                         | row > maxRow = Nothing
@@ -399,10 +400,10 @@ onBoard board (row,col) | row < 0      = Nothing
                         | otherwise    = Just (row,col)
   where (_,(maxRow,maxCol)) = bounds $ boardPrimes board
 
-isOnBoard :: Board -> (Int,Int) -> Bool
+isOnBoard :: Board -> Sq -> Bool
 isOnBoard board sq = isJust $ onBoard board sq
 
-safeSquare :: Board -> (Int,Int) -> Maybe [(Int,Int)]
+safeSquare :: Board -> Sq -> Maybe [Sq]
 safeSquare board sq = do
   sq' <- onBoard board sq
   return $ if ((boardPrimes board) ! sq) == 0 then [sq] else []
@@ -411,15 +412,15 @@ crossDir :: Dir -> Dir
 crossDir Down = Across
 crossDir Across = Down
 
-prevSq :: (Int,Int) -> Dir -> (Int,Int)
+prevSq :: Sq -> Dir -> Sq
 prevSq (row,col) Down   = (row-1,col)
 prevSq (row,col) Across = (row,col-1)
 
-nextSq :: (Int,Int) -> Dir -> (Int,Int)
+nextSq :: Sq -> Dir -> Sq
 nextSq (row,col) Down   = (row+1,col)
 nextSq (row,col) Across = (row,col+1)
 
-squaresAt :: Board -> (Int,Int) -> Dir -> Int -> Maybe [(Int,Int)]
+squaresAt :: Board -> Sq -> Dir -> Int -> Maybe [Sq]
 squaresAt _     _  _   0   = Just []
 squaresAt board sq dir len = do
   sqHere <- safeSquare board sq
@@ -429,12 +430,12 @@ squaresAt board sq dir len = do
   moreSqs <- squaresAt board sq' dir len' 
   return $ sqHere ++ moreSqs
   
-mulAt :: Layout -> Board -> Dir -> (Int,Int) -> Int
+mulAt :: Layout -> Board -> Dir -> Sq-> Int
 mulAt layout board dir sq = ways * xls
   where ways = if (hooksAt board dir sq) then 2 else 1
         xls = (layoutXLS layout) ! sq
         
-mulsAt :: Layout -> Board -> Dir -> [(Int,Int)] -> [Int]
+mulsAt :: Layout -> Board -> Dir -> [Sq] -> [Int]
 mulsAt layout board dir sqs = map (mulAt layout board dir) sqs
 
 fitsAt :: Lexicon -> Integer -> Integer -> Bool
@@ -445,7 +446,7 @@ fits :: Lexicon -> [Integer] -> [Integer] -> Bool
 fits _   []       _    = True
 fits lex cs ps = and $ zipWith (fitsAt lex) cs ps
 
-throughSqsAt :: Board -> (Int,Int) -> Dir -> Int -> [(Int,Int)]
+throughSqsAt :: Board -> Sq -> Dir -> Int -> [Sq]
 throughSqsAt _     _  _   (-1) = []
 throughSqsAt board sq dir len  = if isOnBoard board sq then throughs else []
   where throughs = sqHere ++ throughSqsAt board sq' dir len'
@@ -453,17 +454,17 @@ throughSqsAt board sq dir len  = if isOnBoard board sq then throughs else []
         (sqHere,len') = if prime == 0 then ([],len-1) else ([sq],len)
         sq' = nextSq sq dir
 
-throughTilesAt :: Board -> (Int,Int) -> Dir -> Int -> [Integer]
+throughTilesAt :: Board -> Sq -> Dir -> Int -> [Integer]
 throughTilesAt board sq dir len = map ((boardPrimes board) !) sqs
   where sqs = throughSqsAt board sq dir len
 
-throughAt :: Board -> (Int,Int) -> Dir -> Int -> Integer
+throughAt :: Board -> Sq -> Dir -> Int -> Integer
 throughAt board sq dir len = product $ throughTilesAt board sq dir len
 
-sqTiles :: Board -> [(Int,Int)] -> [Integer]
+sqTiles :: Board -> [Sq] -> [Integer]
 sqTiles board sqs = map ((boardPrimes board) !) sqs
 
-sqProd :: Board -> [(Int,Int)] -> Integer
+sqProd :: Board -> [Sq] -> Integer
 sqProd board sqs = product $ sqTiles board sqs
 
 -- rack -> list of moves tied for highest score
@@ -502,7 +503,7 @@ tileConstraints lex dist crosses set rack = zipWith workWith crosses set
     working cross tiles = filter (\x -> isGoodWith lex cross [x]) tiles
 
 setSpotMoves :: Lexicon -> Board -> TileDist -> Rack
-                        -> (Int,((Int,Int),Dir,TileSet,[Int]))
+                        -> (Int,(Sq,Dir,TileSet,[Int]))
                         -> [(Int,Move)]
 setSpotMoves lex board dist rack (scr,(sq,dir,tileSet,set)) =
   map toScoredMove perms
@@ -512,18 +513,18 @@ setSpotMoves lex board dist rack (scr,(sq,dir,tileSet,set)) =
         newSqs = fromJust $ squaresAt board sq dir (length set)
         toScoredMove perm = (scr,Move perm sq dir) 
 
-touch :: Board -> ((Int,Int),Dir,Int) -> Bool
+touch :: Board -> (Sq,Dir,Int) -> Bool
 touch board (sq,dir,len) = (isJust squares) && starts && touches
   where squares = squaresAt board sq dir len
         starts = not $ safeCovered board $ prevSq sq dir
         touches = (through > 1) || (hooks board (fromJust squares) dir)
         through = throughAt board sq dir len
 
-addThrough :: Board -> ((Int,Int),Dir,Int) -> ((Int,Int),Dir,Int,Integer)
+addThrough :: Board -> (Sq,Dir,Int) -> (Sq,Dir,Int,Integer)
 addThrough board (sq,dir,len) = (sq,dir,len,through)
   where through = throughAt board sq dir len
 
-sqsThatTouch :: Board -> Int -> [((Int,Int),Dir,Int,Integer)]
+sqsThatTouch :: Board -> Int -> [(Sq,Dir,Int,Integer)]
 sqsThatTouch board rackSize =
   map (addThrough board) $ filter (touch board) sqs
   where sqs = [((r,c),d,len) | len <- lens, r <- rows, c <- cols, d <- dirs]
@@ -533,7 +534,7 @@ sqsThatTouch board rackSize =
         dirs = [Down, Across]
         
 nonOpenerSetSpots :: Board -> TileDist -> Rack
-                           -> [((Int,Int),Dir,Int,[(TileSet,Multiset Int)],Integer)]
+                           -> [(Sq,Dir,Int,[(TileSet,Multiset Int)],Integer)]
 nonOpenerSetSpots board dist rack = map kSets' sqs
   where maxLen = length rack
         sqs = sqsThatTouch board maxLen
@@ -578,7 +579,7 @@ constraints lex dist crosses rack = map workWith crosses
     workingScrs cross = map (`unsafeLookup` (tileScores dist)) $ working cross
     working cross = filter (\x -> isGoodWith lex cross [x]) rack
 
-showScoredSetSpot :: Lexicon -> (Int,((Int,Int),Dir,TileSet,[Int]))
+showScoredSetSpot :: Lexicon -> (Int,(Sq,Dir,TileSet,[Int]))
                              -> String
 showScoredSetSpot lex (sc,(sq,dir,set,spot)) =
   "(" ++ show sc ++ "," ++ pos ++ "," ++ set' ++ "," ++ show spot ++ ")"
@@ -586,8 +587,8 @@ showScoredSetSpot lex (sc,(sq,dir,set,spot)) =
         set' = "{" ++ (showRack lex $ toList set) ++ "}"
 
 spotInfo :: Lexicon -> Layout -> Board -> TileDist
-                    -> ((Int,Int),Dir,Int,[(TileSet,Multiset Int)],Integer)
-                    -> [(Int,((Int,Int),Dir,TileSet,[Int]))]
+                    -> (Sq,Dir,Int,[(TileSet,Multiset Int)],Integer)
+                    -> [(Int,(Sq,Dir,TileSet,[Int]))]
 spotInfo lex layout board dist (sq,dir,len,xs,thru) =
   concatMap scoredSpots' $ filter good xs
   where good (tileSet,_) = isGoodWith lex thru $ toList tileSet
@@ -610,7 +611,7 @@ spotInfo lex layout board dist (sq,dir,len,xs,thru) =
         scores = tileScores dist                
 
 scoredSetSpots :: Lexicon -> Layout -> Board -> TileDist -> Rack
-                          -> [(Int,((Int,Int),Dir,TileSet,[Int]))]
+                          -> [(Int,(Sq,Dir,TileSet,[Int]))]
 scoredSetSpots lex layout board dist rack = sortBy descendingScore scored
   where scored = concatMap spotInfo' spots
         spots = nonOpenerSetSpots board dist rack
@@ -623,48 +624,48 @@ kSets k dist rack = map scoreSet' rackSets
         scoreSet set = Multi.fromList $ setScores $ toList set
         setScores set = map (`unsafeLookup` (tileScores dist)) set
 
-covered :: Board -> (Int,Int) -> Bool
+covered :: Board -> Sq -> Bool
 covered board sq = ((boardPrimes board) ! sq) > 1
 
 -- True if on board and containing a tile
 -- False if empty or not on the board
-safeCovered :: Board -> (Int,Int) -> Bool
+safeCovered :: Board -> Sq -> Bool
 safeCovered board sq = isOnBoard board sq && covered board sq
 
-hooksAt :: Board -> Dir -> (Int,Int) -> Bool
+hooksAt :: Board -> Dir -> Sq -> Bool
 hooksAt board dir sq = before || after
   where before = safeCovered board beforeSq
         after = safeCovered board afterSq
         beforeSq = prevSq sq $ crossDir dir
         afterSq = nextSq sq $ crossDir dir
         
-hooks :: Board -> [(Int,Int)] -> Dir -> Bool
+hooks :: Board -> [Sq] -> Dir -> Bool
 hooks board sqs dir = any (hooksAt board dir) sqs
 
-connected :: Board -> Dir -> Bool -> (Int,Int) -> [(Int,Int)]
+connected :: Board -> Dir -> Bool -> Sq -> [Sq]
 connected board dir fwd sq = if safeCovered board next then
                                next:connected board dir fwd next
                              else []  
   where next = if fwd then nextSq sq dir else prevSq sq dir
         
-crossAt :: Board -> Dir -> (Int,Int) -> [(Int,Int)]
+crossAt :: Board -> Dir -> Sq -> [Sq]
 crossAt board dir sq = before ++ after
   where before = connected board (crossDir dir) False sq
         after = connected board (crossDir dir) True sq
         
-crossesAt :: Board -> Dir -> [(Int,Int)] -> [[(Int,Int)]]
+crossesAt :: Board -> Dir -> [Sq] -> [[Sq]]
 crossesAt board dir sqs = map (crossAt board dir) sqs
 
-crossProdsAt :: Board -> Dir -> [(Int,Int)] -> [Integer]
+crossProdsAt :: Board -> Dir -> [Sq] -> [Integer]
 crossProdsAt board dir sqs = map (sqProd board) $ crossesAt board dir sqs
 
-scoreHook :: Layout -> Board -> TileDist -> Dir -> (Int,Int) -> Int
+scoreHook :: Layout -> Board -> TileDist -> Dir -> Sq -> Int
 scoreHook layout board dist dir sq = sum crossScores
   where crossScores = map (`unsafeLookup` scores) $ sqTiles board crossSqs
         crossSqs = crossAt board dir sq
         scores = tileScores dist
         
-scoreHooks :: Layout -> Board -> TileDist -> Dir -> [(Int,Int)] -> Int
+scoreHooks :: Layout -> Board -> TileDist -> Dir -> [Sq] -> Int
 scoreHooks layout board dist dir sqs =
   sum $ map (scoreHook layout board dist dir) sqs
 
