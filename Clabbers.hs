@@ -312,14 +312,17 @@ markThrough board new old = concat $ map renderChunk chunks
         letters = snd $ unzip sorted
         chunks = map unzip $ groupBy sameGroup $ zip isNew letters
         sameGroup (x,_) (y,_) = x == y
-    
+
+showPos :: (Int,Int) -> Dir -> String
+showPos sq@(row,col) dir = case dir of
+                             Across -> num ++ alpha
+                             Down   -> alpha ++ num
+  where num = show (row+1)
+        alpha = [chr (col+ord 'a')]
+
 showMove :: Lexicon -> Board -> Move -> String
 showMove lexicon board (Move word sq@(row,col) dir) = pos ++ " " ++ letters
-  where pos = case dir of
-                Across -> num ++ alpha
-                Down   -> alpha ++ num
-        num = show (row+1)
-        alpha = [chr (col+ord 'a')]
+  where pos = showPos sq dir
         letters = markThrough board new old
         axis = case dir of
                  Down   -> fst
@@ -504,40 +507,12 @@ sqsThatTouch board rackSize =
         lens = [7,6..1]
         dirs = [Down, Across]
         
-nonOpenerSpots :: Board -> TileDist -> Rack
-                        -> [((Int,Int),Dir,[[Int]],Integer)]
-nonOpenerSpots board dist rack = map kSpots' sqs
-  where maxLen = length rack
-        sqs = sqsThatTouch board maxLen
-        kSpots' (sq,dir,len,thru) = (sq,dir,kSpots len dist rack,thru)
-
 nonOpenerSetSpots :: Board -> TileDist -> Rack
-                           -> [((Int,Int),Dir,Int,[(Integer,Multiset Int)],Integer)]
-nonOpenerSetSpots board dist rack = map kSetSpots' sqs
+                           -> [((Int,Int),Dir,Int,[(TileSet,Multiset Int)],Integer)]
+nonOpenerSetSpots board dist rack = map kSets' sqs
   where maxLen = length rack
         sqs = sqsThatTouch board maxLen
-        kSetSpots' (sq,dir,len,thru) = (sq,dir,len,kSets len dist rack,thru)
-
-scoredSpots :: Layout -> Board -> TileDist -> Rack
-                      -> [(Int,((Int,Int),Dir,[Int],Integer))]
-scoredSpots layout board dist rack = sortBy descendingScore scored
-  where scored = concatMap spotInfo spots
-        spots = nonOpenerSpots board dist rack
-        spotInfo (sq,dir,xs,thru) = map scoredSpot xs
-          where
-            scoredSpot x = (score,(sq,dir,x,thru))
-              where
-                score = scoreSpot baseScore wMul muls x
-                wMul = product $ map ((layoutXWS layout) !) newSqs
-                baseScore = bonus+hookScore+wMul*oldScore
-                len = length x
-                bonus = if len >= 7 then 50 else 0
-                hookScore = scoreHooks layout board dist dir newSqs
-                oldScore = sum $ map (`unsafeLookup` scores) oldTiles
-                oldTiles = throughTilesAt board sq dir len
-                scores = tileScores dist                
-                newSqs = fromJust $ squaresAt board sq dir len
-                muls = mulsAt layout board dir newSqs
+        kSets' (sq,dir,len,thru) = (sq,dir,len,kSets len dist rack,thru)
 
 couldFit :: Lexicon -> TileDist -> [Integer] -> Rack -> Multiset Int -> Bool
 couldFit lex dist crosses rack set = all anyFits crosses
@@ -581,24 +556,32 @@ constraints lex dist crosses rack = map workWith crosses
     workWith cross = sortUniq $ if cross==1 then scores else workingScrs cross
     workingScrs cross = map (`unsafeLookup` (tileScores dist)) $ working cross
     working cross = filter (\x -> isGoodWith lex cross [x]) rack
-          
+
+showScoredSetSpot :: Lexicon -> (Int,((Int,Int),Dir,TileSet,[Int]))
+                             -> String
+showScoredSetSpot lex (sc,(sq,dir,set,spot)) =
+  "(" ++ show sc ++ "," ++ pos ++ "," ++ set' ++ "," ++ show spot ++ ")"
+  where pos = showPos sq dir
+        set' = "{" ++ (showRack lex $ toList set) ++ "}"
+
 scoredSetSpots :: Lexicon -> Layout -> Board -> TileDist -> Rack
-                          -> [(Int,((Int,Int),Dir,[Int]))]
+                          -> [(Int,((Int,Int),Dir,TileSet,[Int]))]
 scoredSetSpots lex layout board dist rack = sortBy descendingScore scored
   where scored = concatMap spotInfo spots
         spots = nonOpenerSetSpots board dist rack
-        spotInfo :: ((Int,Int),Dir,Int,[(Integer,Multiset Int)],Integer)
-                    -> [(Int,((Int,Int),Dir,[Int]))]
+        spotInfo :: ((Int,Int),Dir,Int,[(TileSet,Multiset Int)],Integer)
+                    -> [(Int,((Int,Int),Dir,TileSet,[Int]))]
         spotInfo (sq,dir,len,xs,thru) = concatMap scoredSpots' $ filter good xs
           where
-            good (prod,_) = isGoodWithProd lex thru prod
-            scoredSpots' (_,set) = if couldFit' set then
-                                     map scoredSpot $ perms set
-                                   else []
-              where scoredSpot x = (scoreSpot baseScore wMul muls x,(sq,dir,x))
-            perms set = constrainedPerms set constraints'
-            constraints' = constraints lex dist crosses rack
-            couldFit' = couldFit lex dist crosses rack
+            good (tileSet,_) = isGoodWith lex thru $ toList tileSet
+            scoredSpots' (tileSet,set) = if couldFit' tileSet set then
+                                           map scoredSpot $ perms tileSet set
+                                         else []
+              where scoredSpot x =
+                      (scoreSpot baseScore wMul muls x,(sq,dir,tileSet,x))
+            perms tileSet set = constrainedPerms set (constraints' tileSet)
+            constraints' tileSet = constraints lex dist crosses (toList tileSet)
+            couldFit' tileSet = couldFit lex dist crosses (toList tileSet)
             newSqs = fromJust $ squaresAt board sq dir len
             crosses = crossProdsAt board dir newSqs
             muls = mulsAt layout board dir newSqs
@@ -638,17 +621,10 @@ kSpots k dist rack = concat $ map Multi.permutations subsets
   where subsets = kSubsets k $ Multi.fromList scores
         scores = map (`unsafeLookup` (tileScores dist)) rack
 
-kSetSpots :: Int -> TileDist -> Rack -> [(Integer,[[Int]])]
-kSetSpots k dist rack = map prodSet rackSets
+kSets :: Int -> TileDist -> Rack -> [(TileSet,Multiset Int)]
+kSets k dist rack = map scoreSet' rackSets
   where rackSets = kSubsets k $ Multi.fromList rack
-        prodSet set = (product $ toList set,spots set)
-        spots set = Multi.permutations $ Multi.fromList $ setScores $ toList set
-        setScores set = map (`unsafeLookup` (tileScores dist)) set
-
-kSets :: Int -> TileDist -> Rack -> [(Integer,Multiset Int)]
-kSets k dist rack = map prodSet rackSets
-  where rackSets = kSubsets k $ Multi.fromList rack
-        prodSet set = (product $ toList set,scoreSet set)
+        scoreSet' set = (set,scoreSet set)
         scoreSet set = Multi.fromList $ setScores $ toList set
         setScores set = map (`unsafeLookup` (tileScores dist)) set
 
@@ -871,24 +847,17 @@ main = do
   let !top = head moves
   let !topString = showMove twl board top
   let !score = scoreMove standard board english top    
-  -- printf "found %i top moves (such as %s for %i) in %0.5fs\n"
-  --   (length moves::Int) (topString::String) (score::Int) (diff::Double)
   let !board' = makeMove board top
   putStr $ unlines $ labelBoard standard twl board'
   let !rack' = fromJust $ readRack twl "AEOUJLS"
   putStrLn $ showRack twl rack' 
   start' <- getCPUTime
-  --let !moves' = topMoves twl standard board' english rack'
-  --let !spots = nonOpenerSpots board' english rack'
-  --let !nSpots = sum $ map (\(_,_,x) -> length x) spots
-  --let !scored = scoredSpots standard board' english rack'
-  --let !spots = nonOpenerSetSpots board' english rack'
   let !scored = scoredSetSpots twl standard board' english rack'
   end' <- getCPUTime
   let diff' = fromIntegral (end'-start') / (10^12)
   printf "found %i spots in %0.5fs\n"
     (length scored::Int) (diff'::Double)
-  mapM_ print $ take 200 scored
+  mapM_ putStrLn $ map (showScoredSetSpot twl) scored
   --let !top' = head moves'      
   --let !diff' = fromIntegral (end'-start') / (10^12)
   --let !topString' = showMove twl board' top'
