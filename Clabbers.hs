@@ -585,34 +585,36 @@ showScoredSetSpot lex (sc,(sq,dir,set,spot)) =
   where pos = showPos sq dir
         set' = "{" ++ (showRack lex $ toList set) ++ "}"
 
+spotInfo :: Lexicon -> Layout -> Board -> TileDist
+                    -> ((Int,Int),Dir,Int,[(TileSet,Multiset Int)],Integer)
+                    -> [(Int,((Int,Int),Dir,TileSet,[Int]))]
+spotInfo lex layout board dist (sq,dir,len,xs,thru) =
+  concatMap scoredSpots' $ filter good xs
+  where good (tileSet,_) = isGoodWith lex thru $ toList tileSet
+        scoredSpots' (tileSet,set) = if couldFit' tileSet set then
+                                       map scoredSpot $ perms tileSet set
+                                     else []
+          where scoredSpot x = (scoreSpot baseScr wMul muls x,(sq,dir,tileSet,x))
+        perms tileSet set = constrainedPerms set (constraints' tileSet)
+        constraints' tileSet = constraints lex dist crosses (toList tileSet)
+        couldFit' tileSet = couldFit lex dist crosses (toList tileSet)
+        newSqs = fromJust $ squaresAt board sq dir len
+        crosses = crossProdsAt board dir newSqs
+        muls = mulsAt layout board dir newSqs
+        wMul = product $ map ((layoutXWS layout) !) newSqs
+        baseScr = bonus+hookScr+wMul*oldScr
+        bonus = if len >= 7 then 50 else 0
+        hookScr = scoreHooks layout board dist dir newSqs
+        oldScr = sum $ map (`unsafeLookup` scores) oldTiles
+        oldTiles = throughTilesAt board sq dir len
+        scores = tileScores dist                
+
 scoredSetSpots :: Lexicon -> Layout -> Board -> TileDist -> Rack
                           -> [(Int,((Int,Int),Dir,TileSet,[Int]))]
 scoredSetSpots lex layout board dist rack = sortBy descendingScore scored
-  where scored = concatMap spotInfo spots
+  where scored = concatMap spotInfo' spots
         spots = nonOpenerSetSpots board dist rack
-        spotInfo :: ((Int,Int),Dir,Int,[(TileSet,Multiset Int)],Integer)
-                    -> [(Int,((Int,Int),Dir,TileSet,[Int]))]
-        spotInfo (sq,dir,len,xs,thru) = concatMap scoredSpots' $ filter good xs
-          where
-            good (tileSet,_) = isGoodWith lex thru $ toList tileSet
-            scoredSpots' (tileSet,set) = if couldFit' tileSet set then
-                                           map scoredSpot $ perms tileSet set
-                                         else []
-              where scoredSpot x =
-                      (scoreSpot baseScore wMul muls x,(sq,dir,tileSet,x))
-            perms tileSet set = constrainedPerms set (constraints' tileSet)
-            constraints' tileSet = constraints lex dist crosses (toList tileSet)
-            couldFit' tileSet = couldFit lex dist crosses (toList tileSet)
-            newSqs = fromJust $ squaresAt board sq dir len
-            crosses = crossProdsAt board dir newSqs
-            muls = mulsAt layout board dir newSqs
-            wMul = product $ map ((layoutXWS layout) !) newSqs
-            baseScore = bonus+hookScore+wMul*oldScore
-            bonus = if len >= 7 then 50 else 0
-            hookScore = scoreHooks layout board dist dir newSqs
-            oldScore = sum $ map (`unsafeLookup` scores) oldTiles
-            oldTiles = throughTilesAt board sq dir len
-            scores = tileScores dist                
+        spotInfo' = spotInfo lex layout board dist
      
 kSets :: Int -> TileDist -> Rack -> [(TileSet,Multiset Int)]
 kSets k dist rack = map scoreSet' rackSets
