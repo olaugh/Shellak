@@ -473,8 +473,17 @@ topMoves lexicon layout board dist rack = top moves
         top x  = snd $ unzip $ head $ groupBy sameScore x
         moves = if boardIsEmpty board then openers else nonOpeners
         openers = scoredOpeners lexicon layout dist rack
-        nonOpeners = scoredNonOpeners lexicon layout board dist rack
+        nonOpeners = topScoredNonOpeners lexicon layout board dist rack
         sameScore (x,_) (y,_) = x == y
+
+topScoredNonOpeners :: Lexicon -> Layout -> Board -> TileDist -> Rack
+                            -> [(Int,Move)]
+topScoredNonOpeners lex layout board dist rack =
+  mergeMoves $ map spotMoves' topSpots
+  where topSpots = head $ groupBy sameScore spots
+        sameScore (x,_) (y,_) = x == y
+        spots = scoredSetSpots lex layout board dist rack
+        spotMoves' = setSpotMoves lex board dist rack
 
 scoredNonOpeners :: Lexicon -> Layout -> Board -> TileDist -> Rack
                             -> [(Int,Move)]
@@ -865,7 +874,7 @@ main = do
   let !score = scoreMove standard board english top    
   let !board' = makeMove board top
   putStr $ unlines $ labelBoard standard twl board'
-  let !rack' = fromJust $ readRack twl "MUGWMPS"
+  let !rack' = fromJust $ readRack twl "AEOULJS"
   putStrLn $ showRack twl rack' 
   start' <- getCPUTime
   --let !scored = scoredSetSpots twl standard board' english rack'
@@ -878,7 +887,7 @@ main = do
   let !top' = head moves'      
   let !topString' = showMove twl board' top'
   let !score' = scoreMove standard board' english top'
-  printf "found a top move (%s for %i) in %0.5fs\n"
-    (topString'::String) (score'::Int) (diff'::Double)
-  --printf "found %i top moves (such as %s for %i) in %0.5fs\n"
-  --  (length moves'::Int) (topString'::String) (score'::Int) (diff'::Double)
+  --printf "found a top move (%s for %i) in %0.5fs\n"
+  --  (topString'::String) (score'::Int) (diff'::Double)
+  printf "found %i top moves (such as %s for %i) in %0.5fs\n"
+    (length moves'::Int) (topString'::String) (score'::Int) (diff'::Double)
