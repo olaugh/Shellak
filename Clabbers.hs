@@ -560,10 +560,6 @@ nonZero _     = True
 msMinus :: (Eq a) => Multiset a -> a -> Multiset a
 msMinus set x = fromCounts $ filter nonZero $ countsMinus (toCounts set) x
 
-permsStartingWith :: (Eq a) => Multiset a -> [[a]] -> a -> [[a]]
-permsStartingWith set cs x = if msHas set x then perms' x else []
-  where perms' x = map ((:) x) $ Multi.permutations (msMinus set x)
-
 constrainedPerms :: (Eq a) => Multiset a -> [[a]] -> [[a]]
 constrainedPerms set []     = []
 constrainedPerms set (c:cs) = concatMap perms c
@@ -618,98 +614,12 @@ scoredSetSpots lex layout board dist rack = sortBy descendingScore scored
             oldTiles = throughTilesAt board sq dir len
             scores = tileScores dist                
      
-sqLenMoves :: Layout -> Lexicon -> TileDist -> Board -> Rack -> (Int,Int)
-                     -> Dir -> Int -> [(Int,Move)]
-sqLenMoves layout lex dist board rack sq dir len =
-  mergeMoves $ map spotMoves' spots
-  where spots = if (isJust squares) && touches then
-                  kSpots len dist rack
-                else []  
-        squares = squaresAt board sq dir len
-        touches = (through > 1) || (hooks board (fromJust squares) dir)
-        through = throughAt board sq dir len
-        crosses = crossProdsAt board dir (fromJust squares)
-        wMul = product $ map ((layoutXWS layout) !) newSqs
-        muls = mulsAt layout board dir newSqs
-        newSqs = fromJust $ squaresAt board sq dir len
-        oldScore = sum $ map (`unsafeLookup` scores) oldTiles
-        oldTiles = throughTilesAt board sq dir len
-        bonus = if len >= 7 then 50 else 0        
-        hookScore = scoreHooks layout board dist dir newSqs
-        scores = tileScores dist
-        baseScore = bonus+hookScore+wMul*oldScore
-        spotMoves' = spotMoves layout lex dist board sq dir through crosses
-                               rack baseScore wMul muls
-
-kSpots :: Int -> TileDist -> Rack -> [[Int]]
-kSpots k dist rack = concat $ map Multi.permutations subsets
-  where subsets = kSubsets k $ Multi.fromList scores
-        scores = map (`unsafeLookup` (tileScores dist)) rack
-
 kSets :: Int -> TileDist -> Rack -> [(TileSet,Multiset Int)]
 kSets k dist rack = map scoreSet' rackSets
   where rackSets = kSubsets k $ Multi.fromList rack
         scoreSet' set = (set,scoreSet set)
         scoreSet set = Multi.fromList $ setScores $ toList set
         setScores set = map (`unsafeLookup` (tileScores dist)) set
-
-combine' :: Array Int Integer -> [([[Integer]],[Int])] -> [Int] -> [Integer]
-                              -> [Array Int Integer]
-combine' filled []                       indices perm = [filled']
-  where filled' = filled // (zip indices perm)
-combine' filled ((perms',indices'):subs) indices perm =
-  concat $ map (combine' filled' subs indices') perms'
-  where filled' = filled // (zip indices perm)
-  
-combine :: Int -> [([[Integer]],[Int])] -> [[Integer]]
-combine n ((perms,indices):subs) = map elems (concat combined)
-  where combined :: [[Array Int Integer]]
-        combined = map combine'' perms
-        combine'' = combine' (listArray (0,n-1) (repeat 0)) subs indices
-
-subPerms :: TileDist -> [Int] -> Rack -> [([[Integer]],[Int])]
-subPerms dist spot rack = map subPerms $ List.nub . List.sort $ spot
-  where subPerms x = (ofScore x,List.elemIndices x spot)
-        ofScore x = Perm.permuteMultiset $ filter ((== x) . score) rack
-        score x = unsafeLookup x (tileScores dist)
-
-spotPerms :: TileDist -> [Int] -> Rack -> [[Integer]]
-spotPerms dist spot rack = combine (length spot) $ subPerms dist spot rack
-
-spotSetPerms :: TileDist -> [Int] -> TileSet -> [[Integer]]
-spotSetPerms dist spot set = combine (length spot) $ subPerms dist spot set'
-  where set' = toList set
-
-count :: [Int] -> Int -> Int
-count []     _ = 0
-count (x:xs) y = (count xs y) + (if (x==y) then 1 else 0)
-
-subSets :: TileDist -> [Int] -> Rack -> [[TileSet]]
-subSets dist spot rack = map xSubSets $ List.nub . List.sort $ spot
-  where xSubSets x = kSubsets (count spot x) $ ofScore x
-        ofScore x = Multi.fromList $ filter ((== x) . score) rack
-        score x = unsafeLookup x (tileScores dist)
-
-combineSets :: [[TileSet]] -> [TileSet]
-combineSets []           = []
-combineSets [sets]       = sets
-combineSets (sets:sets') = map Multi.disjUnions pairs
-  where pairs = [[set,set'] | set <- sets, set' <- combineSets sets']
-
-spotSets :: TileDist -> [Int] -> Rack -> [TileSet]
-spotSets dist spot rack = combineSets $ subSets dist spot rack
-
-spotMoves :: Layout -> Lexicon -> TileDist -> Board -> (Int,Int) -> Dir
-                    -> Integer -> [Integer] -> Rack -> Int -> Int -> [Int]
-                    -> [Int] -> [(Int,Move)]
-spotMoves layout lex dist board sq dir through crosses rack
-                 baseScore wMul muls spot =
-  mergeMoves $ map movesAt $ filter good sets
-  where sets = spotSets dist spot rack
-        good set = isGoodWith lex through $ toList set
-        movesAt = setMovesAt layout lex dist board sq dir through
-                             crosses score spot
-        score = scoreSpot baseScore wMul muls spot
 
 covered :: Board -> (Int,Int) -> Bool
 covered board sq = ((boardPrimes board) ! sq) > 1
@@ -755,18 +665,6 @@ scoreHook layout board dist dir sq = sum crossScores
 scoreHooks :: Layout -> Board -> TileDist -> Dir -> [(Int,Int)] -> Int
 scoreHooks layout board dist dir sqs =
   sum $ map (scoreHook layout board dist dir) sqs
-
-setMovesAt :: Layout -> Lexicon -> TileDist -> Board -> (Int,Int) -> Dir 
-                     -> Integer -> [Integer] -> Int -> [Int] -> TileSet
-                     -> [(Int,Move)]
-setMovesAt layout lex dist board sq dir through crosses score spot set =
-  map toScoredMove validPerms
-  where validPerms = filter fits' perms
-        perms = if good then spotSetPerms dist spot set else []
-        good = isGoodWith lex through $ toList set
-        len = length spot
-        fits' = fits lex crosses
-        toScoredMove perm = (score,Move perm sq dir)
 
 unfold1 :: (a -> Maybe a) -> a -> [a]
 unfold1 f x = case f x of 
@@ -850,12 +748,6 @@ descendingUniq dist x y = case compare (score x) (score y) of
                             EQ -> compare x y
   where score x = unsafeLookup x (tileScores dist)
         
--- main :: IO ()
--- main = do
--- --  print $ permsStartingWith (Multi.fromList "ABC") ["B","C"] 'C'
---   mapM_ print $ constrainedPerms (Multi.fromList "ABCDEFG")
---     ["ABCDEFG","B","ABCDEFG","D","ABCDEFG","ABCDEFG","ABCDEFG"]
-  
 main :: IO ()
 main = do
   putStrLn "Loading..."
