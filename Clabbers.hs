@@ -486,7 +486,6 @@ tileConstraints :: Lexicon -> TileDist -> [Integer] -> [Int] -> Rack
                            -> [[Integer]]
 tileConstraints lex dist crosses set rack = zipWith workWith crosses set
   where
-    scores = map (`unsafeLookup` (tileScores dist)) rack
     ofScore x = filter ((== x) . score) rack
     score x = unsafeLookup x (tileScores dist)
     workWith cross scr = sortUniq $ if cross==1 then ofScore scr
