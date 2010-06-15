@@ -302,12 +302,11 @@ lookupLetters lex = map lookup
 
 safeLookupPrimes :: Lex -> String -> Maybe [Tile]
 safeLookupPrimes _   []     = Just []
-safeLookupPrimes lex (x:xs) = case (p,ps) of
-                                (Just p',Just ps') -> Just (p':ps')
-                                _                  -> Nothing
-  where p = Map.lookup x (lexPrimes lex)
-        ps = safeLookupPrimes lex xs
-
+safeLookupPrimes lex (x:xs) = do
+  p <- Map.lookup x (lexPrimes lex)
+  ps <- safeLookupPrimes lex xs
+  return (p:ps)
+  
 lookupPrimes :: Lex -> String -> [Tile]
 lookupPrimes lex = map lookup
   where lookup letter = unsafeLookup letter (lexPrimes lex)
