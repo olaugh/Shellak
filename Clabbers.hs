@@ -271,30 +271,36 @@ instance Show Dir where
   
 data Move = Move [Letter] Pos
 
--- So, this is not how you're supposed to use Maybe, but I didn't know any
--- better when I wrote it. At some point when I have nothing exciting to do,
--- I should clean this up.
+-- It would be nice if instead of Maybe Move, this returned something
+-- like Either Move ReadMoveException, where the exception explains
+-- where the parse went wrong.
 readMove :: Lex -> String -> Maybe Move
-readMove lex s = case parse of
-                   Just (Just ps,Just (Just sq,dir)) -> Just $ Move ps (sq,dir)
-                   _                                 -> Nothing
-    where
-      parse = case (words s) of
-                (pos:[letters]) -> Just (readLetters letters,readPos pos)
-                _               -> Nothing
-      readLetters = safeLookupPrimes lex
-      readPos pos = case (splitPos pos) of
-                      Just (sq,dir) -> Just (readSq sq,dir)
-                      _             -> Nothing
-      splitPos pos = if isAsciiAlpha (head pos) then
-                         Just ((tail pos, head pos), Down)
-                     else if isAsciiAlpha (last pos) then
-                              Just ((init pos, last pos), Across)
-                          else Nothing
-      readSq (num,alpha) = if not (null num) && all isDigit num then
-                               Just (-1+read num::Int,ord lower-ord 'a')
-                           else Nothing
-          where lower = toLower alpha
+readMove lex s = readMoveTokens lex (words s)
+
+readMoveTokens :: Lex -> [String] -> Maybe Move
+readMoveTokens lex (pos:[letters]) = do
+  pos' <- readPos pos
+  ps <- safeLookupPrimes lex letters
+  return $ Move ps pos'
+readMoveTokens _   _               = Nothing
+
+readPos :: String -> Maybe Pos
+readPos pos = do
+  (sq,dir) <- splitPos pos
+  sq' <- readSq sq
+  return (sq',dir)
+  
+splitPos :: String -> Maybe ((String,Char),Dir)
+splitPos pos = if isAsciiAlpha (head pos) then
+                 Just ((tail pos,head pos), Down)
+               else if isAsciiAlpha (last pos) then
+                      Just ((init pos,last pos), Across)
+                    else Nothing
+                               
+readSq :: (String,Char) -> Maybe Sq
+readSq (num,alpha) = if not (null num) && all isDigit num then
+                       Just (-1+read num::Int,ord (toLower alpha)-ord 'a')
+                     else Nothing
 
 lookupLetters :: Lex -> [Letter] -> String
 lookupLetters lex = map lookup
