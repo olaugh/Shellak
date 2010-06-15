@@ -498,16 +498,12 @@ topMoves lex layout board dist rack = top moves
 topScoredNonOpeners :: Lex -> Layout -> Board -> Dist -> Rack -> [Scored Move]
 topScoredNonOpeners lex layout board dist rack =
   mergeMoves $ map spotMoves' topSpots
-  where topSpots = head $ groupBy sameScore spots
+  where topSpots = head $ groupBy sameScore spots'
         sameScore (x,_) (y,_) = x == y
-        spots = scoredSetSpots lex layout board dist rack
+        spots' = scoreSetSpots lex layout board dist spots
+        spots = nonOpenerSetSpots board dist rack
         spotMoves' = setSpotMoves lex board dist rack
 
-scoredNonOpeners :: Lex -> Layout -> Board -> Dist -> Rack -> [Scored Move]
-scoredNonOpeners lex layout board dist rack = mergeMoves $ map spotMoves' spots
-  where spots = scoredSetSpots lex layout board dist rack
-        spotMoves' = setSpotMoves lex board dist rack
-        
 tileConstraints :: Lex -> Dist -> [Tile] -> [Score] -> Rack -> [[Tile]]
 tileConstraints lex dist crosses set rack = zipWith workWith crosses set
   where
@@ -623,13 +619,13 @@ spotInfo lex layout board dist ((sq,dir),len,xs,thru) =
         oldTiles = throughTilesAt board (sq,dir) len
         scores = distScores dist                
 
-scoredSetSpots :: Lex -> Layout -> Board -> Dist -> Rack
-                      -> [Scored (Pos,TileSet,[Score])]
-scoredSetSpots lex layout board dist rack = sortBy descendingScore scored
+scoreSetSpots :: Lex -> Layout -> Board -> Dist
+                     -> [(Pos,Int,[(TileSet,ScoreSet)],Prod)]
+                     -> [Scored (Pos,TileSet,[Score])]
+scoreSetSpots lex layout board dist spots = sortBy descendingScore scored
   where scored = concatMap spotInfo' spots
-        spots = nonOpenerSetSpots board dist rack
         spotInfo' = spotInfo lex layout board dist
-     
+        
 kSets :: Int -> Dist -> Rack -> [(TileSet,ScoreSet)]
 kSets k dist rack = map scoreSet' rackSets
   where rackSets = kSubsets k $ Multi.fromList rack
