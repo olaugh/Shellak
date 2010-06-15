@@ -360,17 +360,19 @@ readRack = safeLookupPrimes
 showRack :: Lex -> Rack -> String
 showRack = lookupLetters
 
-descendingScore :: (Int,a) -> (Int,b) -> Ordering
+type Scored a = (Int,a)
+
+descendingScore :: Scored a -> Scored b -> Ordering
 descendingScore (x,_) (y,_) = compare y x
 
--- Flatten a list of lists of (Score,Move), each already sorted by
+-- Flatten a list of lists of Scored Moves, each already sorted by
 -- descending score, maintaining the ordering.
-mergeMoves :: [[(Int,Move)]] -> [(Int,Move)]
+mergeMoves :: [[Scored Move]] -> [Scored Move]
 mergeMoves = foldl (mergeBy descendingScore) []
 
 -- Given a rack, returns a list of opening (scoring) plays, zipped with
 -- their scores, from highest to lowest.
-scoredOpeners :: Lex -> Layout -> Dist -> Rack -> [(Int,Move)]
+scoredOpeners :: Lex -> Layout -> Dist -> Rack -> [Scored Move]
 scoredOpeners lex layout dist rack = scoredMoves
   where rackSet = Multi.fromList rack
         scoredMoves = mergeMoves $ map lengthMoves [7,6..2]
@@ -384,7 +386,7 @@ scoredOpeners lex layout dist rack = scoredMoves
 
 -- Given a set of tiles and a column, returns a list of opening (scoring)
 -- plays, zipped with their scores, from highest to lowest.
-openersAt :: Layout -> Dist -> TileSet -> Int -> [(Int,Move)]
+openersAt :: Layout -> Dist -> TileSet -> Int -> [Scored Move]
 openersAt layout dist set col = map toScoredMove perms
   where perms = descendingPerms dist xls set
         xls = map ((layoutXLS layout) !) squares
@@ -481,7 +483,7 @@ topMoves lex layout board dist rack = top moves
         nonOpeners = topScoredNonOpeners lex layout board dist rack
         sameScore (x,_) (y,_) = x == y
 
-topScoredNonOpeners :: Lex -> Layout -> Board -> Dist -> Rack -> [(Int,Move)]
+topScoredNonOpeners :: Lex -> Layout -> Board -> Dist -> Rack -> [Scored Move]
 topScoredNonOpeners lex layout board dist rack =
   mergeMoves $ map spotMoves' topSpots
   where topSpots = head $ groupBy sameScore spots
@@ -489,7 +491,7 @@ topScoredNonOpeners lex layout board dist rack =
         spots = scoredSetSpots lex layout board dist rack
         spotMoves' = setSpotMoves lex board dist rack
 
-scoredNonOpeners :: Lex -> Layout -> Board -> Dist -> Rack -> [(Int,Move)]
+scoredNonOpeners :: Lex -> Layout -> Board -> Dist -> Rack -> [Scored Move]
 scoredNonOpeners lex layout board dist rack = mergeMoves $ map spotMoves' spots
   where spots = scoredSetSpots lex layout board dist rack
         spotMoves' = setSpotMoves lex board dist rack
@@ -503,8 +505,8 @@ tileConstraints lex dist crosses set rack = zipWith workWith crosses set
                                     else working cross $ ofScore scr
     working cross tiles = filter (\x -> isGoodWith lex cross [x]) tiles
 
-setSpotMoves :: Lex -> Board -> Dist -> Rack -> (Int,(Pos,TileSet,[Int]))
-                    -> [(Int,Move)]
+setSpotMoves :: Lex -> Board -> Dist -> Rack -> Scored (Pos,TileSet,[Int])
+                    -> [Scored Move]
 setSpotMoves lex board dist rack (scr,((sq,dir),tileSet,set)) =
   map toScoredMove perms
   where perms = constrainedPerms tileSet (constraints' tileSet)
@@ -579,7 +581,7 @@ constraints lex dist crosses rack = map workWith crosses
     workingScrs cross = map (`unsafeLookup` (distScores dist)) $ working cross
     working cross = filter (\x -> isGoodWith lex cross [x]) rack
 
-showScoredSetSpot :: Lex -> (Int,(Pos,TileSet,[Int])) -> String
+showScoredSetSpot :: Lex -> Scored (Pos,TileSet,[Int]) -> String
 showScoredSetSpot lex (sc,(pos,set,spot)) =
   "(" ++ show sc ++ "," ++ pos' ++ "," ++ set' ++ "," ++ show spot ++ ")"
   where pos' = showPos pos
@@ -587,7 +589,7 @@ showScoredSetSpot lex (sc,(pos,set,spot)) =
 
 spotInfo :: Lex -> Layout -> Board -> Dist
                 -> (Pos,Int,[(TileSet,Multiset Int)],Integer)
-                -> [(Int,(Pos,TileSet,[Int]))]
+                -> [Scored (Pos,TileSet,[Int])]
 spotInfo lex layout board dist ((sq,dir),len,xs,thru) =
   concatMap scoredSpots' $ filter good xs
   where good (tileSet,_) = isGoodWith lex thru $ toList tileSet
@@ -610,7 +612,7 @@ spotInfo lex layout board dist ((sq,dir),len,xs,thru) =
         scores = distScores dist                
 
 scoredSetSpots :: Lex -> Layout -> Board -> Dist -> Rack
-                      -> [(Int,(Pos,TileSet,[Int]))]
+                      -> [Scored (Pos,TileSet,[Int])]
 scoredSetSpots lex layout board dist rack = sortBy descendingScore scored
   where scored = concatMap spotInfo' spots
         spots = nonOpenerSetSpots board dist rack
