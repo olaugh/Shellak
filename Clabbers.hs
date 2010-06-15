@@ -78,8 +78,8 @@ wordProduct ps = product . unpackWith (`unsafeLookup` ps)
 stringWordProduct :: Map Char Integer -> String -> Integer
 stringWordProduct ps = product . map (`unsafeLookup` ps)
 
-wordProductIn :: Lexicon -> String -> Integer
-wordProductIn = stringWordProduct . lexiconPrimes
+wordProductIn :: Lex -> String -> Integer
+wordProductIn = stringWordProduct . lexPrimes
 
 wordsetFromWords :: Map Char Integer -> [ByteString] -> Set Integer
 wordsetFromWords ps = Set.fromList . map (wordProduct ps)
@@ -87,40 +87,40 @@ wordsetFromWords ps = Set.fromList . map (wordProduct ps)
 swap :: (a,b) -> (b,a)
 swap (a,b) = (b,a)
 
-inverseMap :: Ord b => Map a b -> Map b a
+inverseMap :: (Ord b) => Map a b -> Map b a
 inverseMap = fromList . map swap . Map.assocs
 
-data Lexicon = Lexicon (Map Char Integer) [ByteString] (Set Integer)
-lexiconPrimes  (Lexicon ps _     _  ) = ps
-lexiconWords   (Lexicon _  words _  ) = words
-lexiconSet     (Lexicon _  _     set) = set
-lexiconLetters                        = inverseMap . lexiconPrimes
+data Lex = Lex (Map Char Integer) [ByteString] (Set Integer)
+lexPrimes  (Lex ps _     _  ) = ps
+lexWords   (Lex _  words _  ) = words
+lexSet     (Lex _  _     set) = set
+lexLetters                        = inverseMap . lexPrimes
 
-lexiconFromFile :: FilePath -> IO (Lexicon)
-lexiconFromFile file = do
+lexFromFile :: FilePath -> IO (Lex)
+lexFromFile file = do
   letterPrimes <- letterPrimesFromWordFile file
   contents <- B.readFile file
   let words = B.lines contents
   let !wordset = wordsetFromWords letterPrimes words
-  return $ Lexicon letterPrimes words wordset
+  return $ Lex letterPrimes words wordset
 
-isGoodIn :: Lexicon -> [Integer] -> Bool
-isGoodIn lex word = member (product word) (lexiconSet lex)
+isGoodIn :: Lex -> [Integer] -> Bool
+isGoodIn lex word = member (product word) (lexSet lex)
 
-isGoodWith :: Lexicon -> Integer -> [Integer] -> Bool
-isGoodWith lex through word = member (through*(product word)) (lexiconSet lex)
+isGoodWith :: Lex -> Integer -> [Integer] -> Bool
+isGoodWith lex through word = member (through*(product word)) (lexSet lex)
 
-isGoodWithProd :: Lexicon -> Integer -> Integer -> Bool
-isGoodWithProd lex through prod = member (through*prod) (lexiconSet lex)
+isGoodWithProd :: Lex -> Integer -> Integer -> Bool
+isGoodWithProd lex through prod = member (through*prod) (lexSet lex)
 
 type TileSet = Multiset Integer
 
 data TileDist = TileDist (Map Integer Int)
 tileScores (TileDist scores) = scores
 
-englishScores :: Lexicon -> (Map Integer Int)
-englishScores lexicon = fromList $ zip ps scores
-  where ps = lookupPrimes lexicon ['A'..'Z']
+englishScores :: Lex -> (Map Integer Int)
+englishScores lex = fromList $ zip ps scores
+  where ps = lookupPrimes lex ['A'..'Z']
         scores = [1,3,3,2,1,4,2,4,1,8,5,1,3,1,1,3,10,1,1,1,1,4,4,8,4,10]
 
 listBounds :: [a] -> (Int,Int)
@@ -232,12 +232,12 @@ premiumsTextGrid grid = uncurry (zipWith rowString) grid
 labelLayout :: Layout -> [String]
 labelLayout = prettifyGrid . premiumsTextGrid . layoutPremiumGrids
 
-letterGrid :: Lexicon -> Board -> [String]
-letterGrid lexicon board = splitAtEach cols letters
+letterGrid :: Lex -> Board -> [String]
+letterGrid lex board = splitAtEach cols letters
   where primes = boardPrimes board
         letters = map lookup (elems primes)
         lookup 0 = ' '
-        lookup p = unsafeLookup p (lexiconLetters lexicon)
+        lookup p = unsafeLookup p (lexLetters lex)
         (rows,cols) = gridSize primes
 
 boardGrid :: [String] -> [String] -> [String]
@@ -246,11 +246,11 @@ boardGrid = zipWith rowString
         square x ' ' = x -- empty  -> premium
         square _ x   = x -- letter -> letter
 
-labelBoard :: Layout -> Lexicon -> Board -> [String]
-labelBoard layout lexicon board = prettifyGrid bg
+labelBoard :: Layout -> Lex -> Board -> [String]
+labelBoard layout lex board = prettifyGrid bg
   where bg = boardGrid premiums letters
         premiums = premiumsTextGrid (layoutPremiumGrids layout)
-        letters = letterGrid lexicon board
+        letters = letterGrid lex board
 
 isAsciiAlpha :: Char -> Bool
 isAsciiAlpha c = isAlpha c && isAscii c
@@ -266,15 +266,15 @@ data Move = Move [Integer] Pos
 -- So, this is not how you're supposed to use Maybe, but I didn't know any
 -- better when I wrote it. At some point when I have nothing exciting to do,
 -- I should clean this up.
-readMove :: Lexicon -> String -> Maybe Move
-readMove lexicon s = case parse of
-                       Just (Just ps,Just (Just sq,dir)) -> Just $ Move ps (sq,dir)
-                       _                                 -> Nothing
+readMove :: Lex -> String -> Maybe Move
+readMove lex s = case parse of
+                   Just (Just ps,Just (Just sq,dir)) -> Just $ Move ps (sq,dir)
+                   _                                 -> Nothing
     where
       parse = case (words s) of
                 (pos:[letters]) -> Just (readLetters letters,readPos pos)
                 _               -> Nothing
-      readLetters = safeLookupPrimes lexicon
+      readLetters = safeLookupPrimes lex
       readPos pos = case (splitPos pos) of
                       Just (sq,dir) -> Just (readSq sq,dir)
                       _             -> Nothing
@@ -288,21 +288,21 @@ readMove lexicon s = case parse of
                            else Nothing
           where lower = toLower alpha
 
-lookupLetters :: Lexicon -> [Integer] -> String
-lookupLetters lexicon = map lookup
-  where lookup p = unsafeLookup p (lexiconLetters lexicon)
+lookupLetters :: Lex -> [Integer] -> String
+lookupLetters lex = map lookup
+  where lookup p = unsafeLookup p (lexLetters lex)
 
-safeLookupPrimes :: Lexicon -> String -> Maybe [Integer]
-safeLookupPrimes _       []     = Just []
-safeLookupPrimes lexicon (x:xs) = case (p,ps) of
+safeLookupPrimes :: Lex -> String -> Maybe [Integer]
+safeLookupPrimes _   []     = Just []
+safeLookupPrimes lex (x:xs) = case (p,ps) of
                                     (Just p',Just ps') -> Just (p':ps')
                                     _                  -> Nothing
-  where p = Map.lookup x (lexiconPrimes lexicon)
-        ps = safeLookupPrimes lexicon xs
+  where p = Map.lookup x (lexPrimes lex)
+        ps = safeLookupPrimes lex xs
 
-lookupPrimes :: Lexicon -> String -> [Integer]
-lookupPrimes lexicon = map lookup
-  where lookup letter = unsafeLookup letter (lexiconPrimes lexicon)
+lookupPrimes :: Lex -> String -> [Integer]
+lookupPrimes lex = map lookup
+  where lookup letter = unsafeLookup letter (lexPrimes lex)
 
 markThrough :: Board -> [(Int,Char)] -> [(Int,Char)] -> String
 markThrough board new old = concat $ map renderChunk chunks
@@ -325,8 +325,8 @@ showPos :: Pos -> String
 showPos (sq,Across) = sqNum sq ++ sqAlpha sq
 showPos (sq,Down)   = sqAlpha sq ++ sqNum sq
 
-showMove :: Lexicon -> Board -> Move -> String
-showMove lexicon board (Move word (sq,dir)) = pos ++ " " ++ letters
+showMove :: Lex -> Board -> Move -> String
+showMove lex board (Move word (sq,dir)) = pos ++ " " ++ letters
   where pos = showPos (sq,dir)
         letters = markThrough board new old
         axis = case dir of
@@ -335,11 +335,11 @@ showMove lexicon board (Move word (sq,dir)) = pos ++ " " ++ letters
         new = zip newSqs' newLetters
         newSqs' = map axis newSqs
         Just newSqs = squaresAt board (sq,dir) $ length word
-        newLetters = lookupLetters lexicon word
+        newLetters = lookupLetters lex word
         old = zip oldSqs' oldLetters
         oldSqs' = map axis oldSqs
         oldSqs = throughSqsAt board (sq,dir) $ length word
-        oldLetters = lookupLetters lexicon oldTiles
+        oldLetters = lookupLetters lex oldTiles
         oldTiles = throughTilesAt board (sq,dir) $ length word
 
 makeMove :: Board -> Move -> Board
@@ -354,10 +354,10 @@ makeMove (Board _ grid) (Move word (sq,dir)) = Board False grid'
 
 type Rack = [Integer]
 
-readRack :: Lexicon -> String -> Maybe Rack
+readRack :: Lex -> String -> Maybe Rack
 readRack = safeLookupPrimes
 
-showRack :: Lexicon -> Rack -> String
+showRack :: Lex -> Rack -> String
 showRack = lookupLetters
 
 descendingScore :: (Int,a) -> (Int,b) -> Ordering
@@ -370,14 +370,14 @@ mergeMoves = foldl (mergeBy descendingScore) []
 
 -- Given a rack, returns a list of opening (scoring) plays, zipped with
 -- their scores, from highest to lowest.
-scoredOpeners :: Lexicon -> Layout -> TileDist -> Rack -> [(Int,Move)]
-scoredOpeners lexicon layout dist rack = scoredMoves
+scoredOpeners :: Lex -> Layout -> TileDist -> Rack -> [(Int,Move)]
+scoredOpeners lex layout dist rack = scoredMoves
   where rackSet = Multi.fromList rack
         scoredMoves = mergeMoves $ map lengthMoves [7,6..2]
         lengthMoves k = mergeMoves $ map (setMoves k) $ kSubsets k rackSet
         setMoves k set | good = mergeMoves $ map openersAt' [min..max]
                        | otherwise = []
-          where good = isGoodIn lexicon (toList set)
+          where good = isGoodIn lex (toList set)
                 openersAt' = openersAt layout dist set
                 min = max-k+1
                 max = snd (layoutStart layout)
@@ -442,11 +442,11 @@ mulAt layout board dir sq = ways * xls
 mulsAt :: Layout -> Board -> Dir -> [Sq] -> [Int]
 mulsAt layout board dir sqs = map (mulAt layout board dir) sqs
 
-fitsAt :: Lexicon -> Integer -> Integer -> Bool
+fitsAt :: Lex -> Integer -> Integer -> Bool
 fitsAt _   1     _ = True
-fitsAt lex cross p = member (p*cross) (lexiconSet lex)
+fitsAt lex cross p = member (p*cross) (lexSet lex)
   
-fits :: Lexicon -> [Integer] -> [Integer] -> Bool
+fits :: Lex -> [Integer] -> [Integer] -> Bool
 fits _   []       _    = True
 fits lex cs ps = and $ zipWith (fitsAt lex) cs ps
 
@@ -472,17 +472,17 @@ sqProd :: Board -> [Sq] -> Integer
 sqProd board sqs = product $ sqTiles board sqs
 
 -- rack -> list of moves tied for highest score
-topMoves :: Lexicon -> Layout -> Board -> TileDist -> Rack -> [Move]
-topMoves lexicon layout board dist rack = top moves
+topMoves :: Lex -> Layout -> Board -> TileDist -> Rack -> [Move]
+topMoves lex layout board dist rack = top moves
   where top [] = []
         top x  = snd $ unzip $ head $ groupBy sameScore x
         moves = if boardIsEmpty board then openers else nonOpeners
-        openers = scoredOpeners lexicon layout dist rack
-        nonOpeners = topScoredNonOpeners lexicon layout board dist rack
+        openers = scoredOpeners lex layout dist rack
+        nonOpeners = topScoredNonOpeners lex layout board dist rack
         sameScore (x,_) (y,_) = x == y
 
-topScoredNonOpeners :: Lexicon -> Layout -> Board -> TileDist -> Rack
-                            -> [(Int,Move)]
+topScoredNonOpeners :: Lex -> Layout -> Board -> TileDist -> Rack
+                           -> [(Int,Move)]
 topScoredNonOpeners lex layout board dist rack =
   mergeMoves $ map spotMoves' topSpots
   where topSpots = head $ groupBy sameScore spots
@@ -490,14 +490,13 @@ topScoredNonOpeners lex layout board dist rack =
         spots = scoredSetSpots lex layout board dist rack
         spotMoves' = setSpotMoves lex board dist rack
 
-scoredNonOpeners :: Lexicon -> Layout -> Board -> TileDist -> Rack
-                            -> [(Int,Move)]
+scoredNonOpeners :: Lex -> Layout -> Board -> TileDist -> Rack
+                        -> [(Int,Move)]
 scoredNonOpeners lex layout board dist rack = mergeMoves $ map spotMoves' spots
   where spots = scoredSetSpots lex layout board dist rack
         spotMoves' = setSpotMoves lex board dist rack
         
-tileConstraints :: Lexicon -> TileDist -> [Integer] -> [Int] -> Rack
-                           -> [[Integer]]
+tileConstraints :: Lex -> TileDist -> [Integer] -> [Int] -> Rack -> [[Integer]]
 tileConstraints lex dist crosses set rack = zipWith workWith crosses set
   where
     ofScore x = filter ((== x) . score) rack
@@ -506,9 +505,8 @@ tileConstraints lex dist crosses set rack = zipWith workWith crosses set
                                     else working cross $ ofScore scr
     working cross tiles = filter (\x -> isGoodWith lex cross [x]) tiles
 
-setSpotMoves :: Lexicon -> Board -> TileDist -> Rack
-                        -> (Int,(Pos,TileSet,[Int]))
-                        -> [(Int,Move)]
+setSpotMoves :: Lex -> Board -> TileDist -> Rack -> (Int,(Pos,TileSet,[Int]))
+                    -> [(Int,Move)]
 setSpotMoves lex board dist rack (scr,((sq,dir),tileSet,set)) =
   map toScoredMove perms
   where perms = constrainedPerms tileSet (constraints' tileSet)
@@ -544,7 +542,7 @@ nonOpenerSetSpots board dist rack = map kSets' sqs
         sqs = sqsThatTouch board maxLen
         kSets' (pos,len,thru) = (pos,len,kSets len dist rack,thru)
 
-couldFit :: Lexicon -> TileDist -> [Integer] -> Rack -> Multiset Int -> Bool
+couldFit :: Lex -> TileDist -> [Integer] -> Rack -> Multiset Int -> Bool
 couldFit lex dist crosses rack set = all anyFits crosses
   where anyFits cross = cross==1 || any (isGoodWithProd lex cross) rack
 
@@ -575,7 +573,7 @@ constrainedPerms set (c:cs) = concatMap perms c
 sortUniq :: (Ord a) => [a] -> [a]
 sortUniq x = map head $ List.group $ List.sort x
 
-constraints :: Lexicon -> TileDist -> [Integer] -> [Integer] -> [[Int]]
+constraints :: Lex -> TileDist -> [Integer] -> [Integer] -> [[Int]]
 constraints lex dist crosses rack = map workWith crosses
   where
     scores = map (`unsafeLookup` (tileScores dist)) rack
@@ -583,16 +581,15 @@ constraints lex dist crosses rack = map workWith crosses
     workingScrs cross = map (`unsafeLookup` (tileScores dist)) $ working cross
     working cross = filter (\x -> isGoodWith lex cross [x]) rack
 
-showScoredSetSpot :: Lexicon -> (Int,(Pos,TileSet,[Int]))
-                             -> String
+showScoredSetSpot :: Lex -> (Int,(Pos,TileSet,[Int])) -> String
 showScoredSetSpot lex (sc,(pos,set,spot)) =
   "(" ++ show sc ++ "," ++ pos' ++ "," ++ set' ++ "," ++ show spot ++ ")"
   where pos' = showPos pos
         set' = "{" ++ (showRack lex $ toList set) ++ "}"
 
-spotInfo :: Lexicon -> Layout -> Board -> TileDist
-                    -> (Pos,Int,[(TileSet,Multiset Int)],Integer)
-                    -> [(Int,(Pos,TileSet,[Int]))]
+spotInfo :: Lex -> Layout -> Board -> TileDist
+                -> (Pos,Int,[(TileSet,Multiset Int)],Integer)
+                -> [(Int,(Pos,TileSet,[Int]))]
 spotInfo lex layout board dist ((sq,dir),len,xs,thru) =
   concatMap scoredSpots' $ filter good xs
   where good (tileSet,_) = isGoodWith lex thru $ toList tileSet
@@ -614,8 +611,8 @@ spotInfo lex layout board dist ((sq,dir),len,xs,thru) =
         oldTiles = throughTilesAt board (sq,dir) len
         scores = tileScores dist                
 
-scoredSetSpots :: Lexicon -> Layout -> Board -> TileDist -> Rack
-                          -> [(Int,(Pos,TileSet,[Int]))]
+scoredSetSpots :: Lex -> Layout -> Board -> TileDist -> Rack
+                      -> [(Int,(Pos,TileSet,[Int]))]
 scoredSetSpots lex layout board dist rack = sortBy descendingScore scored
   where scored = concatMap spotInfo' spots
         spots = nonOpenerSetSpots board dist rack
@@ -758,7 +755,7 @@ descendingUniq dist x y = case compare (score x) (score y) of
 main :: IO ()
 main = do
   putStrLn "Loading..."
-  twl <- lexiconFromFile twlFile
+  twl <- lexFromFile twlFile
   putStrLn "Loaded TWL."
   let !board = emptyBoard standard
   let !english = TileDist (englishScores twl)
