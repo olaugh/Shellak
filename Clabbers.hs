@@ -115,8 +115,8 @@ isGoodWithProd lex through prod = member (through*prod) (lexSet lex)
 
 type TileSet = Multiset Integer
 
-data TileDist = TileDist (Map Integer Int)
-tileScores (TileDist scores) = scores
+data Dist = Dist (Map Integer Int)
+distScores (Dist scores) = scores
 
 englishScores :: Lex -> (Map Integer Int)
 englishScores lex = fromList $ zip ps scores
@@ -370,7 +370,7 @@ mergeMoves = foldl (mergeBy descendingScore) []
 
 -- Given a rack, returns a list of opening (scoring) plays, zipped with
 -- their scores, from highest to lowest.
-scoredOpeners :: Lex -> Layout -> TileDist -> Rack -> [(Int,Move)]
+scoredOpeners :: Lex -> Layout -> Dist -> Rack -> [(Int,Move)]
 scoredOpeners lex layout dist rack = scoredMoves
   where rackSet = Multi.fromList rack
         scoredMoves = mergeMoves $ map lengthMoves [7,6..2]
@@ -384,7 +384,7 @@ scoredOpeners lex layout dist rack = scoredMoves
 
 -- Given a set of tiles and a column, returns a list of opening (scoring)
 -- plays, zipped with their scores, from highest to lowest.
-openersAt :: Layout -> TileDist -> TileSet -> Int -> [(Int,Move)]
+openersAt :: Layout -> Dist -> TileSet -> Int -> [(Int,Move)]
 openersAt layout dist set col = map toScoredMove perms
   where perms = descendingPerms dist xls set
         xls = map ((layoutXLS layout) !) squares
@@ -472,7 +472,7 @@ sqProd :: Board -> [Sq] -> Integer
 sqProd board sqs = product $ sqTiles board sqs
 
 -- rack -> list of moves tied for highest score
-topMoves :: Lex -> Layout -> Board -> TileDist -> Rack -> [Move]
+topMoves :: Lex -> Layout -> Board -> Dist -> Rack -> [Move]
 topMoves lex layout board dist rack = top moves
   where top [] = []
         top x  = snd $ unzip $ head $ groupBy sameScore x
@@ -481,8 +481,7 @@ topMoves lex layout board dist rack = top moves
         nonOpeners = topScoredNonOpeners lex layout board dist rack
         sameScore (x,_) (y,_) = x == y
 
-topScoredNonOpeners :: Lex -> Layout -> Board -> TileDist -> Rack
-                           -> [(Int,Move)]
+topScoredNonOpeners :: Lex -> Layout -> Board -> Dist -> Rack -> [(Int,Move)]
 topScoredNonOpeners lex layout board dist rack =
   mergeMoves $ map spotMoves' topSpots
   where topSpots = head $ groupBy sameScore spots
@@ -490,22 +489,21 @@ topScoredNonOpeners lex layout board dist rack =
         spots = scoredSetSpots lex layout board dist rack
         spotMoves' = setSpotMoves lex board dist rack
 
-scoredNonOpeners :: Lex -> Layout -> Board -> TileDist -> Rack
-                        -> [(Int,Move)]
+scoredNonOpeners :: Lex -> Layout -> Board -> Dist -> Rack -> [(Int,Move)]
 scoredNonOpeners lex layout board dist rack = mergeMoves $ map spotMoves' spots
   where spots = scoredSetSpots lex layout board dist rack
         spotMoves' = setSpotMoves lex board dist rack
         
-tileConstraints :: Lex -> TileDist -> [Integer] -> [Int] -> Rack -> [[Integer]]
+tileConstraints :: Lex -> Dist -> [Integer] -> [Int] -> Rack -> [[Integer]]
 tileConstraints lex dist crosses set rack = zipWith workWith crosses set
   where
     ofScore x = filter ((== x) . score) rack
-    score x = unsafeLookup x (tileScores dist)
+    score x = unsafeLookup x (distScores dist)
     workWith cross scr = sortUniq $ if cross==1 then ofScore scr
                                     else working cross $ ofScore scr
     working cross tiles = filter (\x -> isGoodWith lex cross [x]) tiles
 
-setSpotMoves :: Lex -> Board -> TileDist -> Rack -> (Int,(Pos,TileSet,[Int]))
+setSpotMoves :: Lex -> Board -> Dist -> Rack -> (Int,(Pos,TileSet,[Int]))
                     -> [(Int,Move)]
 setSpotMoves lex board dist rack (scr,((sq,dir),tileSet,set)) =
   map toScoredMove perms
@@ -535,14 +533,14 @@ sqsThatTouch board rackSize =
         lens = [7,6..1]
         dirs = [Down, Across]
         
-nonOpenerSetSpots :: Board -> TileDist -> Rack
+nonOpenerSetSpots :: Board -> Dist -> Rack
                            -> [(Pos,Int,[(TileSet,Multiset Int)],Integer)]
 nonOpenerSetSpots board dist rack = map kSets' sqs
   where maxLen = length rack
         sqs = sqsThatTouch board maxLen
         kSets' (pos,len,thru) = (pos,len,kSets len dist rack,thru)
 
-couldFit :: Lex -> TileDist -> [Integer] -> Rack -> Multiset Int -> Bool
+couldFit :: Lex -> Dist -> [Integer] -> Rack -> Multiset Int -> Bool
 couldFit lex dist crosses rack set = all anyFits crosses
   where anyFits cross = cross==1 || any (isGoodWithProd lex cross) rack
 
@@ -573,12 +571,12 @@ constrainedPerms set (c:cs) = concatMap perms c
 sortUniq :: (Ord a) => [a] -> [a]
 sortUniq x = map head $ List.group $ List.sort x
 
-constraints :: Lex -> TileDist -> [Integer] -> [Integer] -> [[Int]]
+constraints :: Lex -> Dist -> [Integer] -> [Integer] -> [[Int]]
 constraints lex dist crosses rack = map workWith crosses
   where
-    scores = map (`unsafeLookup` (tileScores dist)) rack
+    scores = map (`unsafeLookup` (distScores dist)) rack
     workWith cross = sortUniq $ if cross==1 then scores else workingScrs cross
-    workingScrs cross = map (`unsafeLookup` (tileScores dist)) $ working cross
+    workingScrs cross = map (`unsafeLookup` (distScores dist)) $ working cross
     working cross = filter (\x -> isGoodWith lex cross [x]) rack
 
 showScoredSetSpot :: Lex -> (Int,(Pos,TileSet,[Int])) -> String
@@ -587,7 +585,7 @@ showScoredSetSpot lex (sc,(pos,set,spot)) =
   where pos' = showPos pos
         set' = "{" ++ (showRack lex $ toList set) ++ "}"
 
-spotInfo :: Lex -> Layout -> Board -> TileDist
+spotInfo :: Lex -> Layout -> Board -> Dist
                 -> (Pos,Int,[(TileSet,Multiset Int)],Integer)
                 -> [(Int,(Pos,TileSet,[Int]))]
 spotInfo lex layout board dist ((sq,dir),len,xs,thru) =
@@ -609,21 +607,21 @@ spotInfo lex layout board dist ((sq,dir),len,xs,thru) =
         hookScr = scoreHooks layout board dist dir newSqs
         oldScr = sum $ map (`unsafeLookup` scores) oldTiles
         oldTiles = throughTilesAt board (sq,dir) len
-        scores = tileScores dist                
+        scores = distScores dist                
 
-scoredSetSpots :: Lex -> Layout -> Board -> TileDist -> Rack
+scoredSetSpots :: Lex -> Layout -> Board -> Dist -> Rack
                       -> [(Int,(Pos,TileSet,[Int]))]
 scoredSetSpots lex layout board dist rack = sortBy descendingScore scored
   where scored = concatMap spotInfo' spots
         spots = nonOpenerSetSpots board dist rack
         spotInfo' = spotInfo lex layout board dist
      
-kSets :: Int -> TileDist -> Rack -> [(TileSet,Multiset Int)]
+kSets :: Int -> Dist -> Rack -> [(TileSet,Multiset Int)]
 kSets k dist rack = map scoreSet' rackSets
   where rackSets = kSubsets k $ Multi.fromList rack
         scoreSet' set = (set,scoreSet set)
         scoreSet set = Multi.fromList $ setScores $ toList set
-        setScores set = map (`unsafeLookup` (tileScores dist)) set
+        setScores set = map (`unsafeLookup` (distScores dist)) set
 
 covered :: Board -> Sq -> Bool
 covered board sq = ((boardPrimes board) ! sq) > 1
@@ -660,13 +658,13 @@ crossesAt board dir sqs = map (crossAt board dir) sqs
 crossProdsAt :: Board -> Dir -> [Sq] -> [Integer]
 crossProdsAt board dir sqs = map (sqProd board) $ crossesAt board dir sqs
 
-scoreHook :: Layout -> Board -> TileDist -> Dir -> Sq -> Int
+scoreHook :: Layout -> Board -> Dist -> Dir -> Sq -> Int
 scoreHook layout board dist dir sq = sum crossScores
   where crossScores = map (`unsafeLookup` scores) $ sqTiles board crossSqs
         crossSqs = crossAt board dir sq
-        scores = tileScores dist
+        scores = distScores dist
         
-scoreHooks :: Layout -> Board -> TileDist -> Dir -> [Sq] -> Int
+scoreHooks :: Layout -> Board -> Dist -> Dir -> [Sq] -> Int
 scoreHooks layout board dist dir sqs =
   sum $ map (scoreHook layout board dist dir) sqs
 
@@ -703,7 +701,7 @@ permuteBy cmp xs = unfold1 next (sortBy cmp xs) where
       
 -- Given a set of tiles and per-square multipliers for positions on the
 -- board, returns a list of permutations from highest to lowest score.
-descendingPerms :: TileDist -> [Int] -> TileSet -> [[Integer]]
+descendingPerms :: Dist -> [Int] -> TileSet -> [[Integer]]
 descendingPerms dist muls set =
   map orderForBoard $ permuteBy (descendingUniq dist) (toList set)
   where
@@ -712,7 +710,7 @@ descendingPerms dist muls set =
         else Perm.inverse $ Perm.toPermutation ranks
     orderForBoard = Perm.permuteList p
 
-scoreOpener :: Layout -> TileDist -> Move -> Int
+scoreOpener :: Layout -> Dist -> Move -> Int
 scoreOpener layout dist (Move word (sq,dir)) = score
   where score = bonus+mul*sum letterScores
         mul = product $ map ((layoutXWS layout) !) squares
@@ -725,9 +723,9 @@ scoreOpener layout dist (Move word (sq,dir)) = score
                        Across -> second
         makeSq delta = coordMover (+ delta) sq
         bonus = if length word >= 7 then 50 else 0
-        scores = tileScores dist
+        scores = distScores dist
 
-scoreMove :: Layout -> Board -> TileDist -> Move -> Int
+scoreMove :: Layout -> Board -> Dist -> Move -> Int
 scoreMove layout board dist (Move word (sq,dir)) = score
   where score = bonus+hookScore+wMul*(newScore+oldScore)
         wMul = product $ map ((layoutXWS layout) !) newSqs
@@ -739,7 +737,7 @@ scoreMove layout board dist (Move word (sq,dir)) = score
         oldTiles = throughTilesAt board (sq,dir) $ length word
         bonus = if length word >= 7 then 50 else 0
         hookScore = scoreHooks layout board dist dir newSqs
-        scores = tileScores dist
+        scores = distScores dist
 
 scoreSpot :: Int -> Int -> [Int] -> [Int] -> Int
 scoreSpot baseScore wMul muls spot = score
@@ -750,7 +748,7 @@ descendingUniq dist x y = case compare (score x) (score y) of
                             LT -> GT
                             GT -> LT
                             EQ -> compare x y
-  where score x = unsafeLookup x (tileScores dist)
+  where score x = unsafeLookup x (distScores dist)
         
 main :: IO ()
 main = do
@@ -758,7 +756,7 @@ main = do
   twl <- lexFromFile twlFile
   putStrLn "Loaded TWL."
   let !board = emptyBoard standard
-  let !english = TileDist (englishScores twl)
+  let !english = Dist (englishScores twl)
   let !rack = fromJust $ readRack twl "QUIZJAX"
   putStrLn $ showRack twl rack
   start <- getCPUTime
