@@ -264,10 +264,10 @@ isAsciiAlpha :: Char -> Bool
 isAsciiAlpha c = isAlpha c && isAscii c
 
 type Pos = (Sq,Dir)
-data Dir = Down | Across
+data Dir = Down | Acrs
 instance Show Dir where
-  show Down   = "Down"
-  show Across = "Acrs"
+  show Down = "Down"
+  show Acrs = "Acrs"
   
 data Move = Move [Letter] Pos
 
@@ -294,7 +294,7 @@ splitPos :: String -> Maybe ((String,Char),Dir)
 splitPos pos = if isAsciiAlpha (head pos) then
                  Just ((tail pos,head pos), Down)
                else if isAsciiAlpha (last pos) then
-                      Just ((init pos,last pos), Across)
+                      Just ((init pos,last pos), Acrs)
                     else Nothing
                                
 readSq :: (String,Char) -> Maybe Sq
@@ -334,16 +334,16 @@ sqAlpha :: Sq -> String
 sqAlpha (_,col) = [chr (col+ord 'a')]
 
 showPos :: Pos -> String
-showPos (sq,Across) = sqNum sq ++ sqAlpha sq
-showPos (sq,Down)   = sqAlpha sq ++ sqNum sq
+showPos (sq,Acrs) = sqNum sq ++ sqAlpha sq
+showPos (sq,Down) = sqAlpha sq ++ sqNum sq
 
 showMove :: Lex -> Board -> Move -> String
 showMove lex board (Move word (sq,dir)) = pos ++ " " ++ letters
   where pos = showPos (sq,dir)
         letters = markThrough board new old
         axis = case dir of
-                 Down   -> fst
-                 Across -> snd
+                 Down -> fst
+                 Acrs -> snd
         new = zip newSqs' newLetters
         newSqs' = map axis newSqs
         Just newSqs = squaresAt board (sq,dir) $ length word
@@ -359,8 +359,8 @@ makeMove (Board _ grid) (Move word (sq,dir)) = Board False grid'
   where grid' = grid // assocs
         assocs = zipWith makeAssoc word [0..]
         coordMover = case dir of
-                       Down   -> first
-                       Across -> second
+                       Down -> first
+                       Acrs -> second
         makeAssoc letter delta = (sq',letter)
           where sq' = coordMover (+ delta) sq
 
@@ -407,7 +407,7 @@ openersAt layout dist set col = map toScoredMove perms
         sq = (row,col)
         makeSq delta = first (+ delta) sq
         toScoredMove perm = (score,move)
-          where move = Move perm (sq,Across)
+          where move = Move perm (sq,Acrs)
                 score = scoreOpener layout dist move
     
 onBoard :: Board -> Sq -> Maybe Sq
@@ -427,16 +427,16 @@ safeSquare board sq = do
   return $ if ((boardPrimes board) ! sq) == 0 then [sq] else []
 
 crossDir :: Dir -> Dir
-crossDir Down = Across
-crossDir Across = Down
+crossDir Down = Acrs
+crossDir Acrs = Down
 
 prevSq :: Sq -> Dir -> Sq
-prevSq (row,col) Down   = (row-1,col)
-prevSq (row,col) Across = (row,col-1)
+prevSq (row,col) Down = (row-1,col)
+prevSq (row,col) Acrs = (row,col-1)
 
 nextSq :: Sq -> Dir -> Sq
-nextSq (row,col) Down   = (row+1,col)
-nextSq (row,col) Across = (row,col+1)
+nextSq (row,col) Down = (row+1,col)
+nextSq (row,col) Acrs = (row,col+1)
 
 squaresAt :: Board -> Pos -> Int -> Maybe [Sq]
 squaresAt _     _        0   = Just []
@@ -545,7 +545,7 @@ sqsThatTouch board rackSize =
         bounds' x = ((r,r'),(c,c')) where ((r,c),(r',c')) = bounds x
         (rows,cols) = both range $ bounds' $ boardPrimes board
         lens = [7,6..1]
-        dirs = [Down, Across]
+        dirs = [Down, Acrs]
         
 nonOpenerSetSpots :: Board -> Dist -> Rack
                            -> [(Pos,Int,[(TileSet,ScoreSet)],Prod)]
@@ -733,8 +733,8 @@ scoreOpener layout dist (Move word (sq,dir)) = score
         wordScores = map (`unsafeLookup` scores) word
         squares = map makeSq $ range $ listBounds word
         coordMover = case dir of
-                       Down   -> first
-                       Across -> second
+                       Down -> first
+                       Acrs -> second
         makeSq delta = coordMover (+ delta) sq
         bonus = if length word >= 7 then 50 else 0
         scores = distScores dist
