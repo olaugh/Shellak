@@ -462,28 +462,19 @@ topMoves :: Lex -> Layout -> Board -> Dist -> Rack -> [Move]
 topMoves lex layout board dist rack = top moves
   where top [] = []
         top x  = snd $ unzip $ head $ groupBy sameScore x
-        moves = if boardIsEmpty board then openers else nonOpeners
-        openers = topScoredOpeners lex layout board dist rack
-        nonOpeners = topScoredNonOpeners lex layout board dist rack
+        moves = topScored lex layout board dist rack spots
+        spots = if boardIsEmpty board then openers else nonOpeners
+        openers = openerSetSpots layout board dist rack
+        nonOpeners = nonOpenerSetSpots board dist rack
         sameScore (x,_) (y,_) = x == y
 
-topScoredOpeners :: Lex -> Layout -> Board -> Dist -> Rack -> [Scored Move]
-topScoredOpeners lex layout board dist rack =
-  mergeMoves $ map spotMoves' topSpots
-  where topSpots = head $ groupBy sameScore spots'
-        sameScore (x,_) (y,_) = x == y
-        spots' = scoreSetSpots lex layout board dist spots
-        spots = openerSetSpots layout board dist rack
-        spotMoves' = setSpotMoves lex board dist rack
-
-topScoredNonOpeners :: Lex -> Layout -> Board -> Dist -> Rack -> [Scored Move]
-topScoredNonOpeners lex layout board dist rack =
-  mergeMoves $ map spotMoves' topSpots
-  where topSpots = head $ groupBy sameScore spots'
-        sameScore (x,_) (y,_) = x == y
-        spots' = scoreSetSpots lex layout board dist spots
-        spots = nonOpenerSetSpots board dist rack
-        spotMoves' = setSpotMoves lex board dist rack
+topScored :: Lex -> Layout -> Board -> Dist -> Rack
+                 -> [(Pos,Int,[(TileSet,ScoreSet)],Prod)] -> [Scored Move]
+topScored lex layout board dist rack spots = mergeMoves $ map spotMoves topSpots
+  where topSpots = head $ groupBy sameScore scored
+        scored = scoreSetSpots lex layout board dist spots
+        sameScore (x,_) (y,_) = x==y
+        spotMoves = setSpotMoves lex board dist rack
 
 tileConstraints :: Lex -> Dist -> [Tile] -> [Score] -> Rack -> [[Tile]]
 tileConstraints lex dist crosses set rack = zipWith workWith crosses set
