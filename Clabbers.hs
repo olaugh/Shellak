@@ -382,34 +382,6 @@ descendingScore (x,_) (y,_) = compare y x
 mergeMoves :: [[Scored Move]] -> [Scored Move]
 mergeMoves = foldl (mergeBy descendingScore) []
 
--- Given a rack, returns a list of opening (scoring) plays, zipped with
--- their scores, from highest to lowest.
-scoredOpeners :: Lex -> Layout -> Dist -> Rack -> [Scored Move]
-scoredOpeners lex layout dist rack = scoredMoves
-  where rackSet = Multi.fromList rack
-        scoredMoves = mergeMoves $ map lengthMoves [7,6..2]
-        lengthMoves k = mergeMoves $ map (setMoves k) $ kSubsets k rackSet
-        setMoves k set | good = mergeMoves $ map openersAt' [min..max]
-                       | otherwise = []
-          where good = isGoodIn lex (toList set)
-                openersAt' = openersAt layout dist set
-                min = max-k+1
-                max = snd (layoutStart layout)
-
--- Given a set of tiles and a column, returns a list of opening (scoring)
--- plays, zipped with their scores, from highest to lowest.
-openersAt :: Layout -> Dist -> TileSet -> Int -> [Scored Move]
-openersAt layout dist set col = map toScoredMove perms
-  where perms = descendingPerms dist xls set
-        xls = map ((layoutXLS layout) !) squares
-        squares = map makeSq $ range $ listBounds $ toList set
-        row = fst (layoutStart layout)
-        sq = (row,col)
-        makeSq delta = first (+ delta) sq
-        toScoredMove perm = (score,move)
-          where move = Move perm (sq,Acrs)
-                score = scoreOpener layout dist move
-    
 onBoard :: Board -> Sq -> Maybe Sq
 onBoard board (row,col) | row < 0      = Nothing
                         | col < 0      = Nothing
@@ -491,9 +463,18 @@ topMoves lex layout board dist rack = top moves
   where top [] = []
         top x  = snd $ unzip $ head $ groupBy sameScore x
         moves = if boardIsEmpty board then openers else nonOpeners
-        openers = scoredOpeners lex layout dist rack
+        openers = topScoredOpeners lex layout board dist rack
         nonOpeners = topScoredNonOpeners lex layout board dist rack
         sameScore (x,_) (y,_) = x == y
+
+topScoredOpeners :: Lex -> Layout -> Board -> Dist -> Rack -> [Scored Move]
+topScoredOpeners lex layout board dist rack =
+  mergeMoves $ map spotMoves' topSpots
+  where topSpots = head $ groupBy sameScore spots'
+        sameScore (x,_) (y,_) = x == y
+        spots' = scoreSetSpots lex layout board dist spots
+        spots = openerSetSpots layout board dist rack
+        spotMoves' = setSpotMoves lex board dist rack
 
 topScoredNonOpeners :: Lex -> Layout -> Board -> Dist -> Rack -> [Scored Move]
 topScoredNonOpeners lex layout board dist rack =
@@ -523,6 +504,11 @@ setSpotMoves lex board dist rack (scr,((sq,dir),tileSet,set)) =
         newSqs = fromJust $ squaresAt board (sq,dir) (length set)
         toScoredMove perm = (scr,Move perm (sq,dir))
 
+hitCenter :: Layout -> Board -> (Pos,Int) -> Bool
+hitCenter layout board (pos,len) = (isJust squares) && hits
+  where squares = squaresAt board pos len
+        hits = elem (layoutStart layout) (fromJust squares)
+        
 touch :: Board -> (Pos,Int) -> Bool
 touch board ((sq,dir),len) = (isJust squares) && starts && touches
   where squares = squaresAt board (sq,dir) len
@@ -534,6 +520,14 @@ addThrough :: Board -> (Pos,Int) -> (Pos,Int,Prod)
 addThrough board (pos,len) = (pos,len,through)
   where through = throughAt board pos len
 
+sqsThatHitCenter :: Layout -> Board -> Int -> [(Pos,Int,Prod)]
+sqsThatHitCenter layout board rackSize =
+  map (addThrough board) $ filter (hitCenter layout board) sqs
+  where sqs = [(((r,c),Acrs),len) | len <- lens, r <- rows, c <- cols]
+        bounds' x = ((r,r'),(c,c')) where ((r,c),(r',c')) = bounds x
+        (rows,cols) = both range $ bounds' $ boardPrimes board
+        lens = [7,6..2]
+
 sqsThatTouch :: Board -> Int -> [(Pos,Int,Prod)]
 sqsThatTouch board rackSize =
   map (addThrough board) $ filter (touch board) sqs
@@ -543,6 +537,13 @@ sqsThatTouch board rackSize =
         lens = [7,6..1]
         dirs = [Down, Acrs]
         
+openerSetSpots :: Layout -> Board -> Dist -> Rack
+                         -> [(Pos,Int,[(TileSet,ScoreSet)],Prod)]
+openerSetSpots layout board dist rack = map kSets' sqs
+  where maxLen = length rack
+        sqs = sqsThatHitCenter layout board maxLen
+        kSets' (pos,len,thru) = (pos,len,kSets len dist rack,thru)
+
 nonOpenerSetSpots :: Board -> Dist -> Rack
                            -> [(Pos,Int,[(TileSet,ScoreSet)],Prod)]
 nonOpenerSetSpots board dist rack = map kSets' sqs
@@ -678,63 +679,6 @@ scoreHooks :: Layout -> Board -> Dist -> Dir -> [Sq] -> Score
 scoreHooks layout board dist dir sqs =
   sum $ map (scoreHook layout board dist dir) sqs
 
-unfold1 :: (a -> Maybe a) -> a -> [a]
-unfold1 f x = case f x of 
-  Nothing -> [x] 
-  Just y  -> x : unfold1 f y
-
--- | Generates all permutations of a multiset 
---   (based on \"algorithm L\" in Knuth; somewhat less efficient). 
---   The order is lexicographic.  
-permuteBy :: (Eq a, Ord a) => (a -> a -> Ordering) -> [a] -> [[a]] 
-permuteBy cmp xs = unfold1 next (sortBy cmp xs) where
-  -- next :: [a] -> Maybe [a]
-  next xs = case findj (reverse xs,[]) of 
-    Nothing -> Nothing
-    Just ( (l:ls) , rs) -> Just $ inc l ls (reverse rs,[]) 
-    Just ( [] , _ ) -> error "permute: should not happen"
-
-  -- we use simple list zippers: (left,right)
-  -- findj :: ([a],[a]) -> Maybe ([a],[a])   
-  findj ( xxs@(x:xs) , yys@(y:_) ) = case cmp x y of
-    LT        -> Just ( xxs , yys )    
-    otherwise -> findj ( xs , x : yys )
-
-  findj ( x:xs , [] ) = findj ( xs , [x] )  
-  findj ( [] , _ ) = Nothing
-  
-  -- inc :: a -> [a] -> ([a],[a]) -> [a]
-  inc u us ( (x:xs) , yys ) = case cmp u x of
-    LT        -> reverse (x:us)  ++ reverse (u:yys) ++ xs
-    otherwise -> inc u us ( xs , x : yys ) 
-  inc _ _ ( [] , _ ) = error "permute: should not happen"
-      
--- Given a set of tiles and per-square multipliers for positions on the
--- board, returns a list of permutations from highest to lowest score.
-descendingPerms :: Dist -> [Int] -> TileSet -> [[Tile]]
-descendingPerms dist muls set =
-  map orderForBoard $ permuteBy (descendingUniq dist) (toList set)
-  where
-    ranks = reverse $ map fst $ sortBy (comparing snd) $ zip [1..] muls
-    p = if (length muls) == 7 then Perm.toPermutation [2,7,3,4,1,5,6]
-        else Perm.inverse $ Perm.toPermutation ranks
-    orderForBoard = Perm.permuteList p
-
-scoreOpener :: Layout -> Dist -> Move -> Score
-scoreOpener layout dist (Move word (sq,dir)) = score
-  where score = bonus+mul*sum letterScores
-        mul = product $ map ((layoutXWS layout) !) squares
-        letterScores = zipWith (*) xls wordScores
-        xls = map ((layoutXLS layout) !) squares
-        wordScores = map (`unsafeLookup` scores) word
-        squares = map makeSq $ range $ listBounds word
-        coordMover = case dir of
-                       Down -> first
-                       Acrs -> second
-        makeSq delta = coordMover (+ delta) sq
-        bonus = if length word >= 7 then 50 else 0
-        scores = distScores dist
-
 scoreMove :: Layout -> Board -> Dist -> Move -> Score
 scoreMove layout board dist (Move word (sq,dir)) = score
   where score = bonus+hookScore+wMul*(newScore+oldScore)
@@ -753,13 +697,6 @@ scoreSpot :: Int -> Int -> [Int] -> [Int] -> Int
 scoreSpot baseScore wMul muls spot = score
   where score = baseScore+wMul*newScore
         newScore = sum $ zipWith (*) muls spot
-
-descendingUniq :: Dist -> Tile -> Tile -> Ordering
-descendingUniq dist x y = case compare (score x) (score y) of
-                            LT -> GT
-                            GT -> LT
-                            EQ -> compare x y
-  where score x = unsafeLookup x (distScores dist)
         
 main :: IO ()
 main = do
@@ -792,7 +729,5 @@ main = do
   let !top' = head moves'      
   let !topString' = showMove twl board' top'
   let !score' = scoreMove standard board' english top'
-  --printf "found a top move (%s for %i) in %0.5fs\n"
-  --  (topString'::String) (score'::Int) (diff'::Double)
   printf "found %i top moves (such as %s for %i) in %0.5fs\n"
     (length moves'::Int) (topString'::String) (score'::Int) (diff'::Double)
