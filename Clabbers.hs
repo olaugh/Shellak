@@ -63,7 +63,7 @@ letterPrimesFromWordFile file = do
   let sorted = map fst $ reverse $ sortBy (comparing snd) counts
   let ascii = filter isAscii sorted
   let letters = filter isUpper ascii
-  let assocs = zip letters Primes.primes
+  let assocs = zip (letters ++ "?") Primes.primes
   return $ fromList assocs
 
 unsafeLookup :: (Ord k) => k -> Map k a -> a
@@ -90,10 +90,11 @@ swap (a,b) = (b,a)
 inverseMap :: (Ord b) => Map a b -> Map b a
 inverseMap = fromList . map swap . Map.assocs
 
-data Lex = Lex (Map Char Letter) [ByteString] (Set Prod)
-lexPrimes  (Lex ps _     _  ) = ps
-lexWords   (Lex _  words _  ) = words
-lexSet     (Lex _  _     set) = set
+data Lex = Lex (Map Char Letter) [ByteString] (Set Prod) Tile
+lexPrimes  (Lex ps _     _   _    ) = ps
+lexWords   (Lex _  words _   _    ) = words
+lexSet     (Lex _  _     set _    ) = set
+lexBlank   (Lex _  _     _   blank) = blank
 lexLetters                    = inverseMap . lexPrimes
 
 lexFromFile :: FilePath -> IO (Lex)
@@ -102,7 +103,8 @@ lexFromFile file = do
   contents <- B.readFile file
   let words = B.lines contents
   let !wordset = wordsetFromWords letterPrimes words
-  return $ Lex letterPrimes words wordset
+  let blank = unsafeLookup '?' letterPrimes
+  return $ Lex letterPrimes words wordset blank
 
 isGoodIn :: Lex -> [Letter] -> Bool
 isGoodIn lex word = member (product word) (lexSet lex)
@@ -306,10 +308,14 @@ lookupLetters :: Lex -> [Letter] -> String
 lookupLetters lex = map lookup
   where lookup p = unsafeLookup p (lexLetters lex)
 
+safeLookupPrime :: Lex -> Char -> Maybe Tile
+safeLookupPrime lex '?' = Just $ lexBlank lex
+safeLookupPrime lex c   = Map.lookup c (lexPrimes lex)
+
 safeLookupPrimes :: Lex -> String -> Maybe [Tile]
 safeLookupPrimes _   []     = Just []
 safeLookupPrimes lex (x:xs) = do
-  p <- Map.lookup x (lexPrimes lex)
+  p <- safeLookupPrime lex x
   ps <- safeLookupPrimes lex xs
   return (p:ps)
   
@@ -707,7 +713,7 @@ main = do
   let !score = scoreMove standard board english top    
   let !board' = makeMove board top
   putStr $ unlines $ labelBoard standard twl board'
-  let !rack' = fromJust $ readRack twl "AEOULJS"
+  let !rack' = fromJust $ readRack twl "AEOULSJ"
   putStrLn $ showRack twl rack' 
   start' <- getCPUTime
   --let !scored = scoredSetSpots twl standard board' english rack'
