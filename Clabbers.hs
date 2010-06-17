@@ -11,6 +11,12 @@
 --
 -------------------------------------------------------------------
 
+module Main (
+             main
+            ,loadLex
+            ,lexPrimes 
+            ) where
+
 import Control.Arrow
 import Control.Monad
 import Control.Monad.ST
@@ -35,6 +41,7 @@ import Math.Combinatorics.Multiset (Multiset, kSubsets, permutations, toList,
 import qualified Math.Combinat.Permutations as Perm
 import qualified Math.Combinatorics.Multiset as Multi
 import System.CPUTime
+import System.Directory
 import System.Random.Mersenne
 import Text.Printf
 
@@ -57,14 +64,16 @@ freqs file = do
                             :: ST s (STArray s Char Int)
                           (doCount b a 0 >>= freeze)
 
-letterPrimesFromWordFile :: FilePath -> IO (Map Char Letter)
-letterPrimesFromWordFile file = do
-  counts <- freqs file
+primesFromRawLex :: String -> IO (Map Char Letter)
+primesFromRawLex name = do
+  counts <- freqs $ rawLexFile name
   let sorted = map fst $ reverse $ sortBy (comparing snd) counts
   let ascii = filter isAscii sorted
   let letters = filter isUpper ascii
   let assocs = zip (letters ++ "?") Primes.primes
-  return $ fromList assocs
+  let ps = fromList assocs
+  writeFile (lexPrimesFile name) (show ps)
+  return ps
 
 unsafeLookup :: (Ord k) => k -> Map k a -> a
 unsafeLookup x = fromJust . Map.lookup x
@@ -90,17 +99,29 @@ swap (a,b) = (b,a)
 inverseMap :: (Ord b) => Map a b -> Map b a
 inverseMap = fromList . map swap . Map.assocs
 
-data Lex = Lex (Map Char Letter) [ByteString] (Set Prod) Tile
+data Lex = Lex (Map Char Tile) [ByteString] (Set Prod) Tile
 lexPrimes  (Lex ps _     _   _    ) = ps
 lexWords   (Lex _  words _   _    ) = words
 lexSet     (Lex _  _     set _    ) = set
 lexBlank   (Lex _  _     _   blank) = blank
 lexLetters                    = inverseMap . lexPrimes
 
-lexFromFile :: FilePath -> IO (Lex)
-lexFromFile file = do
-  letterPrimes <- letterPrimesFromWordFile file
-  contents <- B.readFile file
+rawLexFile name = "data/lexica/" ++ name ++ ".txt"
+lexPrimesFile name = "data/lexica/" ++ name ++ ".shp"
+
+primesFromFile name = do
+  contents <- readFile $ lexPrimesFile name
+  return $ read contents
+  
+loadPrimes :: String -> IO (Map Char Tile)
+loadPrimes name = do
+  exists <- doesFileExist $ lexPrimesFile name
+  if exists then primesFromFile name else primesFromRawLex name
+                       
+loadLex :: String -> IO (Lex)
+loadLex name = do
+  letterPrimes <- loadPrimes name
+  contents <- B.readFile $ rawLexFile name
   let words = B.lines contents
   let !wordset = wordsetFromWords letterPrimes words
   let blank = unsafeLookup '?' letterPrimes
@@ -698,7 +719,7 @@ scoreSpot baseScore wMul muls spot = score
 main :: IO ()
 main = do
   putStrLn "Loading..."
-  twl <- lexFromFile twlFile
+  twl <- loadLex "twl"
   putStrLn "Loaded TWL."
   let !board = emptyBoard standard
   let !english = Dist (englishScores twl)
