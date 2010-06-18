@@ -23,8 +23,10 @@ import Control.Monad.ST
 import Data.Array as A
 import Data.Array.IO
 import Data.Array.ST
+import Data.Binary
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
+import qualified Data.ByteString.Lazy as LazyB
 import Data.Char
 import Data.List (groupBy, map, sortBy, zip, intersperse)
 import qualified Data.List as List
@@ -106,9 +108,11 @@ lexSet     (Lex _  _     set _    ) = set
 lexBlank   (Lex _  _     _   blank) = blank
 lexLetters                    = inverseMap . lexPrimes
 
-rawLexFile name = "data/lexica/" ++ name ++ ".txt"
+rawLexFile    name = "data/lexica/" ++ name ++ ".txt"
 lexPrimesFile name = "data/lexica/" ++ name ++ ".shp"
+lexSetFile    name = "data/lexica/" ++ name ++ ".shs"
 
+primesFromFile :: String -> IO (Map Char Tile)
 primesFromFile name = do
   contents <- readFile $ lexPrimesFile name
   return $ read contents
@@ -117,13 +121,29 @@ loadPrimes :: String -> IO (Map Char Tile)
 loadPrimes name = do
   exists <- doesFileExist $ lexPrimesFile name
   if exists then primesFromFile name else primesFromRawLex name
-                       
+
+wordsetFromFile :: String -> IO (Set Prod)
+wordsetFromFile name = do
+  contents <- LazyB.readFile $ lexSetFile name
+  return $ decode contents
+
+wordsetFromRawLex :: String -> Map Char Letter -> [ByteString] -> IO (Set Prod)
+wordsetFromRawLex name primes words = do
+  let set = wordsetFromWords primes words
+  LazyB.writeFile (lexSetFile name) (encode set)
+  return set
+
+loadWordset :: String -> Map Char Letter -> [ByteString] -> IO (Set Prod)
+loadWordset name primes words = do
+  exists <- doesFileExist $ lexSetFile name
+  if exists then wordsetFromFile name else wordsetFromRawLex name primes words
+  
 loadLex :: String -> IO (Lex)
 loadLex name = do
   letterPrimes <- loadPrimes name
   contents <- B.readFile $ rawLexFile name
   let words = B.lines contents
-  let !wordset = wordsetFromWords letterPrimes words
+  wordset <- loadWordset name letterPrimes words
   let blank = unsafeLookup '?' letterPrimes
   return $ Lex letterPrimes words wordset blank
 
