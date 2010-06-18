@@ -324,7 +324,7 @@ instance Show Dir where
   show Down = "Down"
   show Acrs = "Acrs"
   
-data Move = Move [Letter] Pos
+data Move = Move [Letter] [Tile] Pos
 
 -- It would be nice if instead of Maybe Move, this returned something
 -- like Either Move ReadMoveException, where the exception explains
@@ -336,7 +336,7 @@ readMoveTokens :: Lex -> [String] -> Maybe Move
 readMoveTokens lex (pos:[letters]) = do
   pos' <- readPos pos
   ps <- safeLookupPrimes lex letters
-  return $ Move ps pos'
+  return $ Move ps ps pos'
 readMoveTokens _   _               = Nothing
 
 readPos :: String -> Maybe Pos
@@ -397,30 +397,33 @@ showPos (sq,Acrs) = sqNum sq ++ sqAlpha sq
 showPos (sq,Down) = sqAlpha sq ++ sqNum sq
 
 showMove :: Lex -> Board -> Move -> String
-showMove lex board (Move word (sq,dir)) = pos ++ " " ++ letters
+showMove lex board (Move letters tiles (sq,dir)) = pos ++ " " ++ disps
   where pos = showPos (sq,dir)
-        letters = markThrough board new old
+        disps = markThrough board new old
         axis = case dir of
                  Down -> fst
                  Acrs -> snd
         new = zip newSqs' newLetters
         newSqs' = map axis newSqs
-        Just newSqs = squaresAt board (sq,dir) $ length word
-        newLetters = lookupLetters lex word
+        Just newSqs = squaresAt board (sq,dir) $ length letters
+        newLetters = lookupLetters lex letters
         old = zip oldSqs' oldLetters
         oldSqs' = map axis oldSqs
-        oldSqs = throughSqsAt board (sq,dir) $ length word
+        oldSqs = throughSqsAt board (sq,dir) $ length letters
         oldLetters = lookupLetters lex oldTiles
-        oldTiles = throughTilesAt board (sq,dir) $ length word
+        oldTiles = throughTilesAt board (sq,dir) $ length letters
 
+-- FIXME!
+-- This can't even play through tiles on the board!!        
 makeMove :: Board -> Move -> Board
-makeMove (Board _ letters tiles) (Move word (sq,dir)) =
-  Board False (letters // assocs) tiles
-  where assocs = zipWith makeAssoc word [0..]
+makeMove (Board _ letters tiles) (Move wordLetters wordTiles (sq,dir)) =
+  Board False (letters // letterAssocs) (tiles // tileAssocs)
+  where letterAssocs = zipWith makeAssoc wordLetters [0..]
+        tileAssocs = zipWith makeAssoc wordTiles [0..]
         coordMover = case dir of
                        Down -> first
                        Acrs -> second
-        makeAssoc letter delta = (sq',letter)
+        makeAssoc x delta = (sq',x)
           where sq' = coordMover (+ delta) sq
 
 type Rack = [Tile]
@@ -552,7 +555,7 @@ setSpotMoves lex board dist rack (scr,((sq,dir),tileSet,set)) =
         constraints' tileSet = tileConstraints lex dist crosses set (toList tileSet)
         crosses = crossProdsAt board dir newSqs
         newSqs = fromJust $ squaresAt board (sq,dir) (length set)
-        toScoredMove perm = (scr,Move perm (sq,dir))
+        toScoredMove perm = (scr,Move perm perm (sq,dir))
 
 hitCenter :: Layout -> Board -> (Pos,Int) -> Bool
 hitCenter layout board (pos,len) = (isJust squares) && hits
@@ -730,16 +733,16 @@ scoreHooks layout board dist dir sqs =
   sum $ map (scoreHook layout board dist dir) sqs
 
 scoreMove :: Layout -> Board -> Dist -> Move -> Score
-scoreMove layout board dist (Move word (sq,dir)) = score
+scoreMove layout board dist (Move letters tiles (sq,dir)) = score
   where score = bonus+hookScore+wMul*(newScore+oldScore)
         wMul = product $ map ((layoutXWS layout) !) newSqs
         newScore = sum $ zipWith (*) muls newScores
         muls = mulsAt layout board dir newSqs
-        newScores = map (`unsafeLookup` scores) word
-        newSqs = fromJust $ squaresAt board (sq,dir) $ length word
+        newScores = map (`unsafeLookup` scores) letters
+        newSqs = fromJust $ squaresAt board (sq,dir) $ length letters
         oldScore = sum $ map (`unsafeLookup` scores) oldTiles
-        oldTiles = throughTilesAt board (sq,dir) $ length word
-        bonus = if length word >= 7 then 50 else 0
+        oldTiles = throughTilesAt board (sq,dir) $ length letters
+        bonus = if length letters >= 7 then 50 else 0
         hookScore = scoreHooks layout board dist dir newSqs
         scores = distScores dist
 
