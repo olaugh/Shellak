@@ -109,6 +109,8 @@ lexSet    (Lex _  _     set _    ) = set
 lexBlank  (Lex _  _     _   blank) = blank
 lexLetters  = inverseMap . lexPrimes
 lexBLetters = Map.fromList . map (second toLower) . Map.assocs . lexLetters
+lexLetter  lex x = unsafeLookup x (lexLetters lex)
+lexBLetter lex x = unsafeLookup x (lexBLetters lex)
 
 rawLexFile    name = "data/lexica/" ++ name ++ ".txt"
 lexPrimesFile name = "data/lexica/" ++ name ++ ".shp"
@@ -289,11 +291,16 @@ premiumsTextGrid grid = uncurry (zipWith rowString) grid
 labelLayout :: Layout -> [String]
 labelLayout = prettifyGrid . premiumsTextGrid . layoutPremiumGrids
 
+displayTile :: Lex -> Letter -> Tile -> Char
+displayTile _   0      0                           = ' '
+displayTile lex letter tile | tile==(lexBlank lex) = lexBLetter lex letter
+displayTile lex letter _                           = lexLetter lex letter
+
 letterGrid :: Lex -> Board -> [String]
-letterGrid lex board = splitAtEach cols letters
-  where letters = map lookup $ elems $ boardLetters board
-        lookup 0 = ' '
-        lookup p = unsafeLookup p (lexLetters lex)
+letterGrid lex board = splitAtEach cols disps
+  where disps = zipWith (displayTile lex) letters tiles
+        letters = elems $ boardLetters board
+        tiles = elems $ boardTiles board
         (rows,cols) = gridSize $ boardLetters board
 
 boardGrid :: [String] -> [String] -> [String]
