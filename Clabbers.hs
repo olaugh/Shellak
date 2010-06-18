@@ -14,7 +14,8 @@
 module Main (
              main
             ,loadLex
-            ,lexPrimes 
+            ,lexLetters
+            ,lexBLetters 
             ) where
 
 import Control.Arrow
@@ -102,11 +103,12 @@ inverseMap :: (Ord b) => Map a b -> Map b a
 inverseMap = fromList . map swap . Map.assocs
 
 data Lex = Lex (Map Char Tile) [ByteString] (Set Prod) Tile
-lexPrimes  (Lex ps _     _   _    ) = ps
-lexWords   (Lex _  words _   _    ) = words
-lexSet     (Lex _  _     set _    ) = set
-lexBlank   (Lex _  _     _   blank) = blank
-lexLetters                    = inverseMap . lexPrimes
+lexPrimes (Lex ps _     _   _    ) = ps
+lexWords  (Lex _  words _   _    ) = words
+lexSet    (Lex _  _     set _    ) = set
+lexBlank  (Lex _  _     _   blank) = blank
+lexLetters  = inverseMap . lexPrimes
+lexBLetters = Map.fromList . map (second toLower) . Map.assocs . lexLetters
 
 rawLexFile    name = "data/lexica/" ++ name ++ ".txt"
 lexPrimesFile name = "data/lexica/" ++ name ++ ".shp"
@@ -227,13 +229,17 @@ splitAtEach n []  = []
 splitAtEach n abc = a:splitAtEach n bc
   where (a,bc) = splitAt n abc
 
-data Board = Board Bool (SqGrid Letter)
-boardIsEmpty (Board empty _      ) = empty
-boardPrimes  (Board _      primes) = primes
+data Board = Board Bool (SqGrid Letter) (SqGrid Tile)
+boardIsEmpty (Board empty _       _    ) = empty
+boardLetters (Board _     letters _    ) = letters
+boardTiles   (Board _     _       tiles) = tiles
+
+emptyGrid :: Layout -> SqGrid Integer
+emptyGrid layout = listArray (bounds (layoutXWS layout)) (repeat 0)
 
 emptyBoard :: Layout -> Board
-emptyBoard layout =
-  Board True (listArray (bounds (layoutXWS layout)) (repeat 0))
+emptyBoard layout = Board True (emptyGrid layout) (emptyGrid layout)
+
 
 data Layout = Layout (SqGrid Int) (SqGrid Int) Sq
 layoutXWS   (Layout xws _ s) = xws
@@ -285,11 +291,10 @@ labelLayout = prettifyGrid . premiumsTextGrid . layoutPremiumGrids
 
 letterGrid :: Lex -> Board -> [String]
 letterGrid lex board = splitAtEach cols letters
-  where primes = boardPrimes board
-        letters = map lookup (elems primes)
+  where letters = map lookup $ elems $ boardLetters board
         lookup 0 = ' '
         lookup p = unsafeLookup p (lexLetters lex)
-        (rows,cols) = gridSize primes
+        (rows,cols) = gridSize $ boardLetters board
 
 boardGrid :: [String] -> [String] -> [String]
 boardGrid = zipWith rowString
@@ -402,9 +407,9 @@ showMove lex board (Move word (sq,dir)) = pos ++ " " ++ letters
         oldTiles = throughTilesAt board (sq,dir) $ length word
 
 makeMove :: Board -> Move -> Board
-makeMove (Board _ grid) (Move word (sq,dir)) = Board False grid'
-  where grid' = grid // assocs
-        assocs = zipWith makeAssoc word [0..]
+makeMove (Board _ letters tiles) (Move word (sq,dir)) =
+  Board False (letters // assocs) tiles
+  where assocs = zipWith makeAssoc word [0..]
         coordMover = case dir of
                        Down -> first
                        Acrs -> second
@@ -435,7 +440,7 @@ onBoard board (row,col) | row < 0      = Nothing
                         | row > maxRow = Nothing
                         | col > maxCol = Nothing
                         | otherwise    = Just (row,col)
-  where (_,(maxRow,maxCol)) = bounds $ boardPrimes board
+  where (_,(maxRow,maxCol)) = bounds $ boardLetters board
 
 isOnBoard :: Board -> Sq -> Bool
 isOnBoard board sq = isJust $ onBoard board sq
@@ -443,7 +448,7 @@ isOnBoard board sq = isJust $ onBoard board sq
 safeSquare :: Board -> Sq -> Maybe [Sq]
 safeSquare board sq = do
   sq' <- onBoard board sq
-  return $ if ((boardPrimes board) ! sq) == 0 then [sq] else []
+  return $ if ((boardLetters board) ! sq) == 0 then [sq] else []
 
 crossDir :: Dir -> Dir
 crossDir Down = Acrs
@@ -487,19 +492,19 @@ throughSqsAt :: Board -> Pos -> Int -> [Sq]
 throughSqsAt _     _       (-1) = []
 throughSqsAt board (sq,dir) len  = if isOnBoard board sq then throughs else []
   where throughs = sqHere ++ throughSqsAt board (sq',dir) len'
-        prime = (boardPrimes board) ! sq
-        (sqHere,len') = if prime == 0 then ([],len-1) else ([sq],len)
+        letter = (boardLetters board) ! sq
+        (sqHere,len') = if letter == 0 then ([],len-1) else ([sq],len)
         sq' = nextSq sq dir
 
 throughTilesAt :: Board -> Pos -> Int -> [Letter]
-throughTilesAt board pos len = map ((boardPrimes board) !) sqs
+throughTilesAt board pos len = map ((boardLetters board) !) sqs
   where sqs = throughSqsAt board pos len
 
 throughAt :: Board -> Pos -> Int -> Prod
 throughAt board pos len = product $ throughTilesAt board pos len
 
 sqTiles :: Board -> [Sq] -> [Letter]
-sqTiles board sqs = map ((boardPrimes board) !) sqs
+sqTiles board sqs = map ((boardLetters board) !) sqs
 
 sqProd :: Board -> [Sq] -> Prod
 sqProd board sqs = product $ sqTiles board sqs
@@ -513,7 +518,7 @@ topMoves lex layout board dist rack = top moves
         spots = if boardIsEmpty board then openers else nonOpeners
         openers = openerSetSpots layout board dist rack
         nonOpeners = nonOpenerSetSpots board dist rack
-        sameScore (x,_) (y,_) = x == y
+        sameScore (x,_) (y,_) = x==y
 
 topScored :: Lex -> Layout -> Board -> Dist -> Rack
                  -> [(Pos,Int,[(TileSet,ScoreSet)],Prod)] -> [Scored Move]
@@ -563,7 +568,7 @@ sqsThatHitCenter layout board rackSize =
   map (addThrough board) $ filter (hitCenter layout board) sqs
   where sqs = [(((r,c),Acrs),len) | len <- lens, r <- rows, c <- cols]
         bounds' x = ((r,r'),(c,c')) where ((r,c),(r',c')) = bounds x
-        (rows,cols) = both range $ bounds' $ boardPrimes board
+        (rows,cols) = both range $ bounds' $ boardLetters board
         lens = [7,6..2]
 
 sqsThatTouch :: Board -> Int -> [(Pos,Int,Prod)]
@@ -571,7 +576,7 @@ sqsThatTouch board rackSize =
   map (addThrough board) $ filter (touch board) sqs
   where sqs = [(((r,c),d),len) | len <- lens, r <- rows, c <- cols, d <- dirs]
         bounds' x = ((r,r'),(c,c')) where ((r,c),(r',c')) = bounds x
-        (rows,cols) = both range $ bounds' $ boardPrimes board
+        (rows,cols) = both range $ bounds' $ boardLetters board
         lens = [7,6..1]
         dirs = [Down, Acrs]
         
@@ -673,7 +678,7 @@ kSets k dist rack = map scoreSet' rackSets
         setScores set = map (`unsafeLookup` (distScores dist)) set
 
 covered :: Board -> Sq -> Bool
-covered board sq = ((boardPrimes board) ! sq) > 1
+covered board sq = ((boardLetters board) ! sq) > 1
 
 -- True if on board and containing a tile
 -- False if empty or not on the board
@@ -753,7 +758,7 @@ main = do
   let !topString = showMove twl board top
   let !score = scoreMove standard board english top    
   let !board' = makeMove board top
-  putStr $ unlines $ labelBoard standard twl board'
+  mapM_ putStrLn $ labelBoard standard twl board'
   let !rack' = fromJust $ readRack twl "AEOULSJ"
   putStrLn $ showRack twl rack' 
   start' <- getCPUTime
@@ -761,9 +766,6 @@ main = do
   let !moves' = topMoves twl standard board' english rack'
   end' <- getCPUTime
   let diff' = fromIntegral (end'-start') / (10^12)
-  --printf "found %i spots in %0.5fs\n"
-  --  (length scored::Int) (diff'::Double)
-  --mapM_ putStrLn $ map (showScoredSetSpot twl) scored
   let !top' = head moves'      
   let !topString' = showMove twl board' top'
   let !score' = scoreMove standard board' english top'
