@@ -413,18 +413,13 @@ showMove lex board (Move letters tiles (sq,dir)) = pos ++ " " ++ disps
         oldLetters = lookupLetters lex oldTiles
         oldTiles = throughTilesAt board (sq,dir) $ length letters
 
--- FIXME!
--- This can't even play through tiles on the board!!        
 makeMove :: Board -> Move -> Board
-makeMove (Board _ letters tiles) (Move wordLetters wordTiles (sq,dir)) =
-  Board False (letters // letterAssocs) (tiles // tileAssocs)
-  where letterAssocs = zipWith makeAssoc wordLetters [0..]
-        tileAssocs = zipWith makeAssoc wordTiles [0..]
-        coordMover = case dir of
-                       Down -> first
-                       Acrs -> second
-        makeAssoc x delta = (sq',x)
-          where sq' = coordMover (+ delta) sq
+makeMove board (Move wordLetters wordTiles pos) = Board False letters' tiles'
+  where letters' = boardLetters board // letterAssocs
+        tiles' = boardTiles board // tileAssocs
+        Just sqs = squaresAt board pos $ length wordLetters
+        letterAssocs = zip sqs wordLetters
+        tileAssocs = zip sqs wordTiles
 
 type Rack = [Tile]
 
