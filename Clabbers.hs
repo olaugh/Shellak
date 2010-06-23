@@ -14,8 +14,11 @@
 module Main (
              main
             ,loadLex
-            ,lexLetters
-            ,lexBLetters 
+            ,blankHack'
+            ,blankHack
+            ,blankify 
+            ,readRack
+            ,showRack 
             ) where
 
 import Control.Arrow
@@ -29,16 +32,18 @@ import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy as LazyB
 import Data.Char
-import Data.List (groupBy, map, sortBy, zip, intersperse)
+import Data.List (groupBy, map, sort, sortBy, zip, intersperse)
 import qualified Data.List as List
 import Data.List.Utils (mergeBy)
-import Data.Map (Map, fromList)
+import Data.Map (Map, fromList, keys)
 import qualified Data.Map as Map
 import Data.Maybe
+import Data.Numbers
 import Data.Numbers.Primes as Primes
 import Data.Ord (comparing)
 import Data.Set (Set, member)
 import qualified Data.Set as Set
+import Debug.Trace (trace)
 import Math.Combinatorics.Multiset (Multiset, kSubsets, permutations, toList,
                                     fromCounts, toCounts)
 import qualified Math.Combinat.Permutations as Perm
@@ -111,6 +116,8 @@ lexLetters  = inverseMap . lexPrimes
 lexBLetters = Map.fromList . map (second toLower) . Map.assocs . lexLetters
 lexLetter  lex x = unsafeLookup x (lexLetters lex)
 lexBLetter lex x = unsafeLookup x (lexBLetters lex)
+lexTiles lex = keys $ lexLetters lex
+lexNonBlanks lex = filter (/= (lexBlank lex)) (lexTiles lex)
 
 rawLexFile    name = "data/lexica/" ++ name ++ ".txt"
 lexPrimesFile name = "data/lexica/" ++ name ++ ".shp"
@@ -157,6 +164,18 @@ isGoodIn lex word = member (product word) (lexSet lex)
 isGoodWith :: Lex -> Prod -> [Letter] -> Bool
 isGoodWith lex through word = member (through*(product word)) (lexSet lex)
 
+showProd :: Lex -> Prod -> String
+showProd lex prod = "<" ++ showRack lex (primeFactors prod) ++ ">"
+
+isGoodWithBlank :: Lex -> Prod -> TileSet -> Bool
+isGoodWithBlank lex through tileSet =
+  -- trace ("isGoodWithBlank " ++ showProd lex through ++ " "
+  --        ++ showSet lex tileSet
+  --        ++ ": " ++ show (any good prods)) $
+  any good prods
+  where good prod = member prod (lexSet lex)
+        prods = map ((*through) . product . toList) $ blankify lex tileSet
+
 isGoodWithProd :: Lex -> Prod -> Prod -> Bool
 isGoodWithProd lex through prod = member (through*prod) (lexSet lex)
 
@@ -175,8 +194,8 @@ distScores (Dist scores) = scores
 
 englishScores :: Lex -> (Map Tile Score)
 englishScores lex = fromList $ zip ps scores
-  where ps = lookupPrimes lex ['A'..'Z']
-        scores = [1,3,3,2,1,4,2,4,1,8,5,1,3,1,1,3,10,1,1,1,1,4,4,8,4,10]
+  where ps = lookupPrimes lex $ '?':['A'..'Z']
+        scores = 0:[1,3,3,2,1,4,2,4,1,8,5,1,3,1,1,3,10,1,1,1,1,4,4,8,4,10]
 
 listBounds :: [a] -> (Int,Int)
 listBounds s = (0,len-1) where len = length s
@@ -427,7 +446,7 @@ readRack :: Lex -> String -> Maybe Rack
 readRack = safeLookupPrimes
 
 showRack :: Lex -> Rack -> String
-showRack = lookupLetters
+showRack lex = sort . (lookupLetters lex)
 
 type Scored a = (Score,a)
 
@@ -533,6 +552,14 @@ topScored lex layout board dist rack spots = mergeMoves $ map spotMoves topSpots
         sameScore (x,_) (y,_) = x==y
         spotMoves = setSpotMoves lex board dist rack
 
+letterCanHook :: Lex -> Prod -> Letter -> Bool
+letterCanHook lex cross letter = isGoodWith lex cross [letter]
+
+tileCanHook :: Lex -> Prod -> Tile -> Bool
+tileCanHook lex cross tile = if tile==lexBlank lex then blank else natural
+  where natural = letterCanHook lex cross tile
+        blank = any (letterCanHook lex cross) (lexNonBlanks lex)
+        
 tileConstraints :: Lex -> Dist -> [Tile] -> [Score] -> Rack -> [[Tile]]
 tileConstraints lex dist crosses set rack = zipWith workWith crosses set
   where
@@ -540,7 +567,7 @@ tileConstraints lex dist crosses set rack = zipWith workWith crosses set
     score x = unsafeLookup x (distScores dist)
     workWith cross scr = sortUniq $ if cross==1 then ofScore scr
                                     else working cross $ ofScore scr
-    working cross tiles = filter (\x -> isGoodWith lex cross [x]) tiles
+    working cross tiles = filter (tileCanHook lex cross) tiles
 
 setSpotMoves :: Lex -> Board -> Dist -> Rack -> Scored (Pos,TileSet,[Score])
                     -> [Scored Move]
@@ -592,6 +619,26 @@ openerSetSpots layout board dist rack = map kSets' sqs
         sqs = sqsThatHitCenter layout board maxLen
         kSets' (pos,len,thru) = (pos,len,kSets len dist rack,thru)
 
+showStringList' [] = "]"
+showStringList' [x] = x ++ "]"
+showStringList' (x:xs) = x ++ "," ++ showStringList' (xs)
+
+showStringList [] = "[]"
+showStringList x = "[" ++ showStringList' x
+
+showSet lex set = "{" ++ showRack lex (toList set) ++ "}"
+
+showSets lex (tileSet,scoreSet) = "(" ++ tileSet' ++ "," ++ scoreSet' ++ ")"
+  where tileSet' = showSet lex tileSet
+        scoreSet' = show $ toList scoreSet
+
+showSetSpot :: Lex -> (Pos,Int,[(TileSet,ScoreSet)],Prod) -> String
+showSetSpot lex (pos,len,sets,prod) =
+  pos' ++ "(" ++ show len ++ ")" ++ " " ++ sets' ++ " " ++ prod'
+  where pos' = showPos pos
+        sets' = showStringList $ map (showSets lex) sets
+        prod' = showProd lex prod
+        
 nonOpenerSetSpots :: Board -> Dist -> Rack
                            -> [(Pos,Int,[(TileSet,ScoreSet)],Prod)]
 nonOpenerSetSpots board dist rack = map kSets' sqs
@@ -631,7 +678,9 @@ sortUniq :: (Ord a) => [a] -> [a]
 sortUniq x = map head $ List.group $ List.sort x
 
 constraints :: Lex -> Dist -> [Prod] -> [Tile] -> [[Score]]
-constraints lex dist crosses rack = map workWith crosses
+constraints lex dist crosses rack =
+--  trace ("rack: " ++  showRack lex rack ++ " " ++ show (map workWith crosses)) $
+  map workWith crosses
   where
     scores = map (`unsafeLookup` (distScores dist)) rack
     workWith cross = sortUniq $ if cross==1 then scores else workingScrs cross
@@ -644,19 +693,36 @@ showScoredSetSpot lex (sc,(pos,set,spot)) =
   where pos' = showPos pos
         set' = "{" ++ (showRack lex $ toList set) ++ "}"
 
+blankHack' :: Int -> [Tile] -> [[Letter]]
+blankHack' 0 _       = [[]]
+blankHack' _ []      = []
+blankHack' n letters = withHead ++ withTail
+  where withHead = map ((head letters) :) $ blankHack' (n-1) letters
+        withTail = blankHack' n (tail letters)
+
+blankHack :: Lex -> Int -> [[Letter]]
+blankHack lex n = blankHack' n (lexNonBlanks lex)
+
+blankify :: Lex -> TileSet -> [LetterSet]
+blankify lex tileSet = map Multi.fromList $ map (++ naturals) blanks
+  where tiles = toList tileSet
+        naturals = filter (/= lexBlank lex) tiles
+        blanks = blankHack lex ((length tiles)-(length naturals))
+
 spotInfo :: Lex -> Layout -> Board -> Dist
                 -> (Pos,Int,[(TileSet,ScoreSet)],Integer)
-                -> [Scored (Pos,TileSet,[Score])]
+                -> [Scored (Pos,LetterSet,[Score])]
 spotInfo lex layout board dist ((sq,dir),len,xs,thru) =
   concatMap scoredSpots' $ filter good xs
-  where good (tileSet,_) = isGoodWith lex thru $ toList tileSet
-        scoredSpots' (tileSet,set) = if couldFit' tileSet set then
-                                       map scoredSpot $ perms tileSet set
-                                     else []
-          where scoredSpot x = (scoreSpot baseScr wMul muls x,((sq,dir),tileSet,x))
-        perms tileSet set = constrainedPerms set (constraints' tileSet)
+  where blankify' (tileSet,s) = map (\x -> (x,s)) $ blankify lex tileSet
+        good (tileSet,_) = isGoodWithBlank lex thru tileSet
+        scoredSpots' (letterSet,set) = if couldFit' letterSet set then
+                                         map scoredSpot $ perms letterSet set
+                                       else []
+          where scoredSpot x = (scoreSpot baseScr wMul muls x,((sq,dir),letterSet,x))
+        perms letterSet set = constrainedPerms set (constraints' letterSet)
         constraints' tileSet = constraints lex dist crosses (toList tileSet)
-        couldFit' tileSet = couldFit lex dist crosses (toList tileSet)
+        couldFit' letterSet = couldFit lex dist crosses (toList letterSet)
         newSqs = fromJust $ squaresAt board (sq,dir) len
         crosses = crossProdsAt board dir newSqs
         muls = mulsAt layout board dir newSqs
@@ -670,7 +736,7 @@ spotInfo lex layout board dist ((sq,dir),len,xs,thru) =
 
 scoreSetSpots :: Lex -> Layout -> Board -> Dist
                      -> [(Pos,Int,[(TileSet,ScoreSet)],Prod)]
-                     -> [Scored (Pos,TileSet,[Score])]
+                     -> [Scored (Pos,LetterSet,[Score])]
 scoreSetSpots lex layout board dist spots = sortBy descendingScore scored
   where scored = concatMap spotInfo' spots
         spotInfo' = spotInfo lex layout board dist
@@ -764,13 +830,16 @@ main = do
   let !score = scoreMove standard board english top    
   let !board' = makeMove board top
   mapM_ putStrLn $ labelBoard standard twl board'
-  let !rack' = fromJust $ readRack twl "AEOULSJ"
+  let !rack' = fromJust $ readRack twl "MASTER?"
   putStrLn $ showRack twl rack' 
   start' <- getCPUTime
-  --let !scored = scoredSetSpots twl standard board' english rack'
+  -- let !spots = nonOpenerSetSpots board' english rack'
+  -- let !scored = scoreSetSpots twl standard board' english spots    
   let !moves' = topMoves twl standard board' english rack'
   end' <- getCPUTime
   let diff' = fromIntegral (end'-start') / (10^12)
+  --mapM_ putStrLn $ map (showSetSpot twl) spots
+  --mapM_ print scored    
   let !top' = head moves'      
   let !topString' = showMove twl board' top'
   let !score' = scoreMove standard board' english top'
