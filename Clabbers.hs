@@ -606,7 +606,7 @@ sqsThatHitCenter layout board rackSize =
 sqsThatTouch :: Board -> Int -> [(Pos,Int,Prod)]
 sqsThatTouch board rackSize =
   map (addThrough board) $ filter (touch board) sqs
-  where sqs = [(((r,c),d),len) | len <- lens, r <- rows, c <- cols, d <- dirs]
+  where sqs = [(((r,c),d),len) | len <- [7], r <- [6], c <- [2], d <- [Acrs]]
         bounds' x = ((r,r'),(c,c')) where ((r,c),(r',c')) = bounds x
         (rows,cols) = both range $ bounds' $ boardLetters board
         lens = [7,6..1]
@@ -830,7 +830,7 @@ main = do
   let !score = scoreMove standard board english top    
   let !board' = makeMove board top
   mapM_ putStrLn $ labelBoard standard twl board'
-  let !rack' = fromJust $ readRack twl "MASTER?"
+  let !rack' = fromJust $ readRack twl "J?MJAMS"
   putStrLn $ showRack twl rack' 
   start' <- getCPUTime
   -- let !spots = nonOpenerSetSpots board' english rack'
