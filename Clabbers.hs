@@ -169,15 +169,17 @@ showProd lex prod = "<" ++ showRack lex (primeFactors prod) ++ ">"
 
 isGoodWithBlank :: Lex -> Prod -> TileSet -> Bool
 isGoodWithBlank lex through tileSet =
-  -- trace ("isGoodWithBlank " ++ showProd lex through ++ " "
-  --        ++ showSet lex tileSet
-  --        ++ ": " ++ show (any good prods)) $
+  trace ("isGoodWithBlank " ++ showProd lex through ++ " "
+         ++ showSet lex tileSet
+         ++ ": " ++ show (any good prods)) $
   any good prods
   where good prod = member prod (lexSet lex)
         prods = map ((*through) . product . toList) $ blankify lex tileSet
 
 isGoodWithProd :: Lex -> Prod -> Prod -> Bool
-isGoodWithProd lex through prod = member (through*prod) (lexSet lex)
+isGoodWithProd lex through prod = if prod==lexBlank lex then blank else natural
+  where natural = member (through*prod) (lexSet lex)
+        blank = any (isGoodWithProd lex through) (lexNonBlanks lex)
 
 type Tile = Integer
 type TileSet = Multiset Tile
@@ -646,8 +648,11 @@ nonOpenerSetSpots board dist rack = map kSets' sqs
         sqs = sqsThatTouch board maxLen
         kSets' (pos,len,thru) = (pos,len,kSets len dist rack,thru)
 
-couldFit :: Lex -> Dist -> [Prod] -> Rack -> ScoreSet -> Bool
-couldFit lex dist crosses rack set = all anyFits crosses
+couldFit :: Lex -> Dist -> [Prod] -> Rack -> Bool
+couldFit lex dist crosses rack =
+  trace ("couldFit " ++ show (map (showProd lex) crosses) ++ " "
+         ++ showRack lex rack ++ ": " ++ show (all anyFits crosses)) $
+  all anyFits crosses
   where anyFits cross = cross==1 || any (isGoodWithProd lex cross) rack
 
 countsHas :: (Eq a) => [(a,Int)] -> a -> Bool
@@ -679,13 +684,14 @@ sortUniq x = map head $ List.group $ List.sort x
 
 constraints :: Lex -> Dist -> [Prod] -> [Tile] -> [[Score]]
 constraints lex dist crosses rack =
---  trace ("rack: " ++  showRack lex rack ++ " " ++ show (map workWith crosses)) $
+  trace ("constraints " ++ show (map (showProd lex) crosses) ++ " "
+         ++ showRack lex rack ++ ": " ++ show (map workWith crosses)) $
   map workWith crosses
   where
     scores = map (`unsafeLookup` (distScores dist)) rack
     workWith cross = sortUniq $ if cross==1 then scores else workingScrs cross
     workingScrs cross = map (`unsafeLookup` (distScores dist)) $ working cross
-    working cross = filter (\x -> isGoodWith lex cross [x]) rack
+    working cross = filter (\x -> isGoodWithProd lex cross x) rack
 
 showScoredSetSpot :: Lex -> Scored (Pos,TileSet,[Score]) -> String
 showScoredSetSpot lex (sc,(pos,set,spot)) =
@@ -716,7 +722,7 @@ spotInfo lex layout board dist ((sq,dir),len,xs,thru) =
   concatMap scoredSpots' $ filter good xs
   where blankify' (tileSet,s) = map (\x -> (x,s)) $ blankify lex tileSet
         good (tileSet,_) = isGoodWithBlank lex thru tileSet
-        scoredSpots' (letterSet,set) = if couldFit' letterSet set then
+        scoredSpots' (letterSet,set) = if couldFit' letterSet then
                                          map scoredSpot $ perms letterSet set
                                        else []
           where scoredSpot x = (scoreSpot baseScr wMul muls x,((sq,dir),letterSet,x))
