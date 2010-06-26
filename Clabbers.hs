@@ -32,7 +32,7 @@ import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy as LazyB
 import Data.Char
-import Data.List (groupBy, map, sort, sortBy, zip, intersperse)
+import Data.List (groupBy, intersperse, map, nub, sort, sortBy, zip)
 import qualified Data.List as List
 import Data.List.Utils (mergeBy)
 import Data.Map (Map, fromList, keys)
@@ -74,6 +74,7 @@ freqs file = do
 
 primesFromRawLex :: String -> IO (Map Char Letter)
 primesFromRawLex name = do
+  putStrLn $ "Computing tile-to-prime mapping for " ++ name ++ " lexicon..."
   counts <- freqs $ rawLexFile name
   let sorted = map fst $ reverse $ sortBy (comparing snd) counts
   let ascii = filter isAscii sorted
@@ -140,6 +141,7 @@ wordsetFromFile name = do
 
 wordsetFromRawLex :: String -> Map Char Letter -> [ByteString] -> IO (Set Prod)
 wordsetFromRawLex name primes words = do
+  putStrLn $ "Creating wordset for " ++ name ++ " lexicon..."
   let set = wordsetFromWords primes words
   LazyB.writeFile (lexSetFile name) (encode set)
   return set
@@ -184,6 +186,7 @@ isGoodWithProd lex through prod = if prod==lexBlank lex then blank else natural
 type Tile = Integer
 type TileSet = Multiset Tile
 
+type Designated = (Letter,Tile)
 type Prod = Integer
 type Letter = Integer
 type LetterSet = Multiset Letter
@@ -191,6 +194,7 @@ type LetterSet = Multiset Letter
 type Score = Int
 type ScoreSet = Multiset Score
 
+-- this needs to have counts too
 data Dist = Dist (Map Integer Score)
 distScores (Dist scores) = scores
 
@@ -442,11 +446,13 @@ makeMove board (Move wordLetters wordTiles pos) = Board False letters' tiles'
         letterAssocs = zip sqs wordLetters
         tileAssocs = zip sqs wordTiles
 
+-- Racks should really be of type (Multiset Tile)
 type Rack = [Tile]
 
 readRack :: Lex -> String -> Maybe Rack
 readRack = safeLookupPrimes
 
+-- would be nice to show this in alphagram order
 showRack :: Lex -> Rack -> String
 showRack lex = sort . (lookupLetters lex)
 
@@ -557,19 +563,23 @@ topScored lex layout board dist rack spots = mergeMoves $ map spotMoves topSpots
 letterCanHook :: Lex -> Prod -> Letter -> Bool
 letterCanHook lex cross letter = isGoodWith lex cross [letter]
 
-tileCanHook :: Lex -> Prod -> Tile -> Bool
-tileCanHook lex cross tile = if tile==lexBlank lex then blank else natural
-  where natural = letterCanHook lex cross tile
-        blank = any (letterCanHook lex cross) (lexNonBlanks lex)
+lettersThatHook :: Lex -> Prod -> Tile -> [Letter]
+lettersThatHook lex cross tile = if tile==lexBlank lex then blank else natural
+  where natural = if letterCanHook lex cross tile then [tile] else []
+        blank = filter (letterCanHook lex cross) (lexNonBlanks lex)
         
-tileConstraints :: Lex -> Dist -> [Tile] -> [Score] -> Rack -> [[Tile]]
-tileConstraints lex dist crosses set rack = zipWith workWith crosses set
+tileConstraints :: Lex -> Dist -> [Tile] -> [Score] -> Rack -> [[Letter]]
+tileConstraints lex dist crosses set rack =
+  trace ("tileConstraints " ++ show (map (showProd lex) crosses) ++ " "
+         ++ show set ++ " " ++ showRack lex rack
+         ++ ": " ++ show (map (map (showProd lex)) (zipWith workWith crosses set))) $
+  zipWith workWith crosses set
   where
     ofScore x = filter ((== x) . score) rack
     score x = unsafeLookup x (distScores dist)
     workWith cross scr = sortUniq $ if cross==1 then ofScore scr
                                     else working cross $ ofScore scr
-    working cross tiles = filter (tileCanHook lex cross) tiles
+    working cross tiles = nub $ concatMap (lettersThatHook lex cross) tiles
 
 setSpotMoves :: Lex -> Board -> Dist -> Rack -> Scored (Pos,TileSet,[Score])
                     -> [Scored Move]
@@ -671,6 +681,17 @@ nonZero _     = True
 
 msMinus :: (Eq a) => Multiset a -> a -> Multiset a
 msMinus set x = fromCounts $ filter nonZero $ countsMinus (toCounts set) x
+
+--    Letters that hook each cross
+-- -> Prod of words' "through" letters
+-- -> Tiles to be blank-designated (if applicable) and permuted
+-- -> (Letter,Tile) permutations, ready to be turned into moves
+-- blankifiedPerms :: [[Letter]] -> Prod -> TileSet -> [[(Letter,Tile)]]
+
+--    Letters that hook each cross
+-- -> (Letter,Tile) pairs including designated blanks
+-- -> (Letter,Tile) permutations, ready to be turned into moves
+-- letterTilePerms :: [[Letter]] -> Multiset (Letter,Tile) -> [[(Letter,Tile)]
 
 constrainedPerms :: (Eq a) => Multiset a -> [[a]] -> [[a]]
 constrainedPerms set []     = []
@@ -818,6 +839,12 @@ scoreSpot baseScore wMul muls spot = score
   where score = baseScore+wMul*newScore
         newScore = sum $ zipWith (*) muls spot
         
+-- main :: IO ()
+-- main = do
+--   putStrLn "Loading..."
+--   twl <- loadLex "twl"
+--   putStrLn "Loaded TWL."
+
 main :: IO ()
 main = do
   putStrLn "Loading..."
