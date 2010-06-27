@@ -11,6 +11,8 @@
 --
 -------------------------------------------------------------------
 
+{-# LANGUAGE FlexibleInstances #-}
+
 module Main (
              main
             ,loadLex
@@ -18,7 +20,8 @@ module Main (
             ,blankHack
             ,blankify 
             ,readRack
-            ,showRack 
+            ,showRack
+            ,lexBMaps 
             ) where
 
 import Control.Arrow
@@ -35,7 +38,7 @@ import Data.Char
 import Data.List (groupBy, intersperse, map, nub, sort, sortBy, zip)
 import qualified Data.List as List
 import Data.List.Utils (mergeBy)
-import Data.Map (Map, fromList, keys)
+import Data.Map (Map, fromList, fromListWith, keys)
 import qualified Data.Map as Map
 import Data.Maybe
 import Data.Numbers
@@ -72,7 +75,9 @@ freqs file = do
                             :: ST s (STArray s Char Int)
                           (doCount b a 0 >>= freeze)
 
-primesFromRawLex :: String -> IO (Map Char Letter)
+type PrimeMap = Map Char Integer
+
+primesFromRawLex :: String -> IO (PrimeMap)
 primesFromRawLex name = do
   putStrLn $ "Computing tile-to-prime mapping for " ++ name ++ " lexicon..."
   counts <- freqs $ rawLexFile name
@@ -90,29 +95,53 @@ unsafeLookup x = fromJust . Map.lookup x
 unpackWith :: (Char -> a) -> (ByteString -> [a])
 unpackWith f = map f . B.unpack
 
-wordProduct :: Map Char Letter -> ByteString -> Prod
+wordProduct :: PrimeMap -> ByteString -> Prod
 wordProduct ps = product . unpackWith (`unsafeLookup` ps)
 
-stringWordProduct :: Map Char Letter -> String -> Prod
+stringWordProduct :: PrimeMap -> String -> Prod
 stringWordProduct ps = product . map (`unsafeLookup` ps)
 
 wordProductIn :: Lex -> String -> Prod
 wordProductIn = stringWordProduct . lexPrimes
 
-wordsetFromWords :: Map Char Letter -> [ByteString] -> Set Prod
+wordsetFromWords :: PrimeMap -> [ByteString] -> Set Prod
 wordsetFromWords ps = Set.fromList . map (wordProduct ps)
 
+-- this is a small abomination
+maxBlanks :: Int
+maxBlanks = 2
+
+blankMapFromWord :: PrimeMap -> Int -> ByteString -> [(Prod,[LetterSet])]
+blankMapFromWord ps n word = map makePair $ kSubsets n word'
+  where word' = Multi.fromList $ unpackWith (`unsafeLookup` ps) word
+        prod = wordProduct ps word
+        naturalProd blanks = prod `div` (product (toList blanks))
+        makePair blanks = (naturalProd blanks,[blanks])
+
+type BlankMap = Map Prod (Set LetterSet)
+type BMaps = Array Int BlankMap
+
+blankMapFromWords :: PrimeMap -> [ByteString] -> Int -> BlankMap
+blankMapFromWords ps words n = Map.map Set.fromList $ fromListWith (++) assocs
+  where assocs = concatMap (blankMapFromWord ps n) words
+
+bMapsFromWords :: PrimeMap -> [ByteString] -> BMaps
+bMapsFromWords ps words = listArray bounds bMaps
+  where bounds = (1,maxBlanks)
+        bMaps = map (blankMapFromWords ps words) $ range bounds
+        
 swap :: (a,b) -> (b,a)
 swap (a,b) = (b,a)
 
 inverseMap :: (Ord b) => Map a b -> Map b a
 inverseMap = fromList . map swap . Map.assocs
 
-data Lex = Lex (Map Char Tile) [ByteString] (Set Prod) Tile
-lexPrimes (Lex ps _     _   _    ) = ps
-lexWords  (Lex _  words _   _    ) = words
-lexSet    (Lex _  _     set _    ) = set
-lexBlank  (Lex _  _     _   blank) = blank
+data Lex = Lex PrimeMap [ByteString] (Set Prod) Tile BMaps
+lexPrimes (Lex ps _     _   _     _    ) = ps
+lexWords  (Lex _  words _   _     _    ) = words
+lexSet    (Lex _  _     set _     _    ) = set
+lexBlank  (Lex _  _     _   blank _    ) = blank
+lexBMaps  (Lex _  _     _   _     bMaps) = bMaps
 lexLetters  = inverseMap . lexPrimes
 lexBLetters = Map.fromList . map (second toLower) . Map.assocs . lexLetters
 lexLetter  lex x = unsafeLookup x (lexLetters lex)
@@ -123,13 +152,14 @@ lexNonBlanks lex = filter (/= (lexBlank lex)) (lexTiles lex)
 rawLexFile    name = "data/lexica/" ++ name ++ ".txt"
 lexPrimesFile name = "data/lexica/" ++ name ++ ".shp"
 lexSetFile    name = "data/lexica/" ++ name ++ ".shs"
+lexBMapsFile  name = "data/lexica/" ++ name ++ ".shb"
 
-primesFromFile :: String -> IO (Map Char Tile)
+primesFromFile :: String -> IO (PrimeMap)
 primesFromFile name = do
   contents <- readFile $ lexPrimesFile name
   return $ read contents
   
-loadPrimes :: String -> IO (Map Char Tile)
+loadPrimes :: String -> IO (PrimeMap)
 loadPrimes name = do
   exists <- doesFileExist $ lexPrimesFile name
   if exists then primesFromFile name else primesFromRawLex name
@@ -139,18 +169,35 @@ wordsetFromFile name = do
   contents <- LazyB.readFile $ lexSetFile name
   return $ decode contents
 
-wordsetFromRawLex :: String -> Map Char Letter -> [ByteString] -> IO (Set Prod)
+wordsetFromRawLex :: String -> PrimeMap -> [ByteString] -> IO (Set Prod)
 wordsetFromRawLex name primes words = do
   putStrLn $ "Creating wordset for " ++ name ++ " lexicon..."
   let set = wordsetFromWords primes words
   LazyB.writeFile (lexSetFile name) (encode set)
   return set
 
-loadWordset :: String -> Map Char Letter -> [ByteString] -> IO (Set Prod)
+loadWordset :: String -> PrimeMap -> [ByteString] -> IO (Set Prod)
 loadWordset name primes words = do
   exists <- doesFileExist $ lexSetFile name
   if exists then wordsetFromFile name else wordsetFromRawLex name primes words
+
+bMapsFromFile :: String -> IO (BMaps)
+bMapsFromFile name = do
+  contents <- LazyB.readFile $ lexBMapsFile name
+  return $ decode contents
+
+bMapsFromRawLex :: String -> PrimeMap -> [ByteString] -> IO (BMaps)
+bMapsFromRawLex name primes words = do
+  putStrLn $ "Creating blank maps for " ++ name ++ " lexicon..."
+  let bMaps = bMapsFromWords primes words
+  LazyB.writeFile (lexBMapsFile name) (encode bMaps)  
+  return bMaps
   
+loadBMaps :: String -> PrimeMap -> [ByteString] -> IO (BMaps)
+loadBMaps name primes words = do
+  exists <- doesFileExist $ lexBMapsFile name
+  if exists then bMapsFromFile name else bMapsFromRawLex name primes words
+
 loadLex :: String -> IO (Lex)
 loadLex name = do
   letterPrimes <- loadPrimes name
@@ -158,7 +205,8 @@ loadLex name = do
   let words = B.lines contents
   wordset <- loadWordset name letterPrimes words
   let blank = unsafeLookup '?' letterPrimes
-  return $ Lex letterPrimes words wordset blank
+  bMaps <- loadBMaps name letterPrimes words
+  return $ Lex letterPrimes words wordset blank bMaps
 
 isGoodIn :: Lex -> [Letter] -> Bool
 isGoodIn lex word = member (product word) (lexSet lex)
@@ -190,6 +238,11 @@ type Designated = (Letter,Tile)
 type Prod = Integer
 type Letter = Integer
 type LetterSet = Multiset Letter
+instance Eq a => Eq (Multiset a) where x==y = (toList x)==(toList y)
+instance Ord a => Ord (Multiset a) where compare = comparing toList
+instance (Ord a, Binary a) => Binary (Multiset a)
+  where put s = put (length (toList s)) >> mapM_ put (toList s)
+        get = liftM Multi.fromList get
 
 type Score = Int
 type ScoreSet = Multiset Score
@@ -198,6 +251,7 @@ type ScoreSet = Multiset Score
 data Dist = Dist (Map Integer Score)
 distScores (Dist scores) = scores
 
+-- this should come from XML input
 englishScores :: Lex -> (Map Tile Score)
 englishScores lex = fromList $ zip ps scores
   where ps = lookupPrimes lex $ '?':['A'..'Z']
@@ -209,6 +263,7 @@ listBounds s = (0,len-1) where len = length s
 stringArray :: String -> Array Int Char
 stringArray s = listArray (listBounds s) s
 
+-- this should come from XML input
 standardText :: [String]
 standardText =  ["3W .. .. 2L .. .. .. 3W .. .. .. 2L .. .. 3W"
                 ,".. 2W .. .. .. 3L .. .. .. 3L .. .. .. 2W .."
@@ -839,42 +894,44 @@ scoreSpot baseScore wMul muls spot = score
   where score = baseScore+wMul*newScore
         newScore = sum $ zipWith (*) muls spot
         
+main :: IO ()
+main = do
+  putStrLn "Loading..."
+  twl <- loadLex "twl-2to4"
+  putStrLn "Loaded TWL."
+  -- twl <- loadLex "twl-2to4"
+  -- putStrLn "Loaded TWL-2to4."
+
 -- main :: IO ()
 -- main = do
 --   putStrLn "Loading..."
 --   twl <- loadLex "twl"
 --   putStrLn "Loaded TWL."
-
-main :: IO ()
-main = do
-  putStrLn "Loading..."
-  twl <- loadLex "twl"
-  putStrLn "Loaded TWL."
-  let !board = emptyBoard standard
-  let !english = Dist (englishScores twl)
-  let !rack = fromJust $ readRack twl "QUIZJAX"
-  putStrLn $ showRack twl rack
-  start <- getCPUTime
-  let !moves = topMoves twl standard board english rack
-  end <- getCPUTime
-  let diff = fromIntegral (end-start) / (10^12)
-  let !top = head moves
-  let !topString = showMove twl board top
-  let !score = scoreMove standard board english top    
-  let !board' = makeMove board top
-  mapM_ putStrLn $ labelBoard standard twl board'
-  let !rack' = fromJust $ readRack twl "J?MJAMS"
-  putStrLn $ showRack twl rack' 
-  start' <- getCPUTime
-  -- let !spots = nonOpenerSetSpots board' english rack'
-  -- let !scored = scoreSetSpots twl standard board' english spots    
-  let !moves' = topMoves twl standard board' english rack'
-  end' <- getCPUTime
-  let diff' = fromIntegral (end'-start') / (10^12)
-  --mapM_ putStrLn $ map (showSetSpot twl) spots
-  --mapM_ print scored    
-  let !top' = head moves'      
-  let !topString' = showMove twl board' top'
-  let !score' = scoreMove standard board' english top'
-  printf "found %i top moves (such as %s for %i) in %0.5fs\n"
-    (length moves'::Int) (topString'::String) (score'::Int) (diff'::Double)
+--   let !board = emptyBoard standard
+--   let !english = Dist (englishScores twl)
+--   let !rack = fromJust $ readRack twl "QUIZJAX"
+--   putStrLn $ showRack twl rack
+--   start <- getCPUTime
+--   let !moves = topMoves twl standard board english rack
+--   end <- getCPUTime
+--   let diff = fromIntegral (end-start) / (10^12)
+--   let !top = head moves
+--   let !topString = showMove twl board top
+--   let !score = scoreMove standard board english top    
+--   let !board' = makeMove board top
+--   mapM_ putStrLn $ labelBoard standard twl board'
+--   let !rack' = fromJust $ readRack twl "J?MJAMS"
+--   putStrLn $ showRack twl rack' 
+--   start' <- getCPUTime
+--   -- let !spots = nonOpenerSetSpots board' english rack'
+--   -- let !scored = scoreSetSpots twl standard board' english spots    
+--   let !moves' = topMoves twl standard board' english rack'
+--   end' <- getCPUTime
+--   let diff' = fromIntegral (end'-start') / (10^12)
+--   --mapM_ putStrLn $ map (showSetSpot twl) spots
+--   --mapM_ print scored    
+--   let !top' = head moves'      
+--   let !topString' = showMove twl board' top'
+--   let !score' = scoreMove standard board' english top'
+--   printf "found %i top moves (such as %s for %i) in %0.5fs\n"
+--     (length moves'::Int) (topString'::String) (score'::Int) (diff'::Double)
