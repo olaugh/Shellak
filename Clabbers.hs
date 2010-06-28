@@ -57,9 +57,6 @@ import System.Directory
 import System.Random.Mersenne
 import Text.Printf
 
-twlFile :: FilePath
-twlFile = "data/lexica/twl.txt"
-
 -- Rewrite this using accum
 freqs :: FilePath -> IO [(Char,Int)]
 freqs file = do
@@ -898,7 +895,7 @@ scoreSpot baseScore wMul muls spot = score
 main :: IO ()
 main = do
   putStrLn "Loading..."
-  twl <- loadLex "twl-2to4"
+  twl <- loadLex "twl"
   putStrLn "Loaded TWL."
   -- twl <- loadLex "twl-2to4"
   -- putStrLn "Loaded TWL-2to4."
