@@ -24,6 +24,7 @@ module Main (
             ,lexBMaps 
             ) where
 
+import Codec.Compression.GZip
 import Control.Arrow
 import Control.Monad
 import Control.Monad.ST
@@ -152,7 +153,7 @@ lexNonBlanks lex = filter (/= (lexBlank lex)) (lexTiles lex)
 rawLexFile    name = "data/lexica/" ++ name ++ ".txt"
 lexPrimesFile name = "data/lexica/" ++ name ++ ".shp"
 lexSetFile    name = "data/lexica/" ++ name ++ ".shs"
-lexBMapsFile  name = "data/lexica/" ++ name ++ ".shb"
+lexBMapsFile  name = "data/lexica/" ++ name ++ ".shb.gz"
 
 primesFromFile :: String -> IO (PrimeMap)
 primesFromFile name = do
@@ -173,7 +174,7 @@ wordsetFromRawLex :: String -> PrimeMap -> [ByteString] -> IO (Set Prod)
 wordsetFromRawLex name primes words = do
   putStrLn $ "Creating wordset for " ++ name ++ " lexicon..."
   let set = wordsetFromWords primes words
-  LazyB.writeFile (lexSetFile name) (encode set)
+  LazyB.writeFile (lexSetFile name) $ encode set
   return set
 
 loadWordset :: String -> PrimeMap -> [ByteString] -> IO (Set Prod)
@@ -184,13 +185,13 @@ loadWordset name primes words = do
 bMapsFromFile :: String -> IO (BMaps)
 bMapsFromFile name = do
   contents <- LazyB.readFile $ lexBMapsFile name
-  return $ decode contents
+  return $ decode $ decompress contents
 
 bMapsFromRawLex :: String -> PrimeMap -> [ByteString] -> IO (BMaps)
 bMapsFromRawLex name primes words = do
   putStrLn $ "Creating blank maps for " ++ name ++ " lexicon..."
   let bMaps = bMapsFromWords primes words
-  LazyB.writeFile (lexBMapsFile name) (encode bMaps)  
+  LazyB.writeFile (lexBMapsFile name) $ compress $ encode bMaps
   return bMaps
   
 loadBMaps :: String -> PrimeMap -> [ByteString] -> IO (BMaps)
