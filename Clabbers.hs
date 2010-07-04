@@ -116,11 +116,11 @@ blankMapFromWord ps n word = map makePair $ kSubsets n word'
         naturalProd blanks = prod `div` (product (toList blanks))
         makePair blanks = (naturalProd blanks,[blanks])
 
-type BlankMap = Map Prod (Set LetterSet)
+type BlankMap = Map Prod [LetterSet]
 type BMaps = Array Int BlankMap
 
 blankMapFromWords :: PrimeMap -> [ByteString] -> Int -> BlankMap
-blankMapFromWords ps words n = Map.map Set.fromList $ fromListWith (++) assocs
+blankMapFromWords ps words n = Map.map sortUniq $ fromListWith (++) assocs
   where assocs = concatMap (blankMapFromWord ps n) words
 
 bMapsFromWords :: PrimeMap -> [ByteString] -> BMaps
@@ -895,8 +895,8 @@ scoreSpot baseScore wMul muls spot = score
 main :: IO ()
 main = do
   putStrLn "Loading..."
-  twl <- loadLex "twl"
-  putStrLn "Loaded TWL."
+  twl <- loadLex "twl-2to11"
+  putStrLn "Loaded TWL-2to11."
   -- twl <- loadLex "twl-2to4"
   -- putStrLn "Loaded TWL-2to4."
 
