@@ -21,7 +21,8 @@ module Main (
             ,blankify 
             ,readRack
             ,showRack
-            ,lexBMaps 
+            ,lexBMaps
+            ,wordProductIn
             ) where
 
 import Codec.Compression.GZip
@@ -109,14 +110,14 @@ wordsetFromWords ps = Set.fromList . map (wordProduct ps)
 maxBlanks :: Int
 maxBlanks = 2
 
-blankMapFromWord :: PrimeMap -> Int -> ByteString -> [(Prod,[LetterSet])]
-blankMapFromWord ps n word = map makePair $ kSubsets n word'
+blankMapFromWord :: PrimeMap -> Int -> ByteString -> [(Prod,[[Letter]])]
+blankMapFromWord ps n word = map (makePair . toList) $ kSubsets n word'
   where word' = Multi.fromList $ unpackWith (`unsafeLookup` ps) word
         prod = wordProduct ps word
-        naturalProd blanks = prod `div` (product (toList blanks))
+        naturalProd blanks = prod `div` (product blanks)
         makePair blanks = (naturalProd blanks,[blanks])
 
-type BlankMap = Map Prod [LetterSet]
+type BlankMap = Map Prod [[Letter]]
 type BMaps = Array Int BlankMap
 
 blankMapFromWords :: PrimeMap -> [ByteString] -> Int -> BlankMap
@@ -895,8 +896,15 @@ scoreSpot baseScore wMul muls spot = score
 main :: IO ()
 main = do
   putStrLn "Loading..."
-  twl <- loadLex "twl-2to11"
-  putStrLn "Loaded TWL-2to11."
+  twl <- loadLex "twl-2to8"
+  putStrLn "Loaded TWL-2to8."
+  let bmaps = elems $ lexBMaps twl
+  print $ length bmaps
+  let hoagie = wordProductIn twl "HOAGIE"
+  let bmaps = lexBMaps twl
+  let one = head $ elems bmaps
+  let two = head $ tail $ elems bmaps
+  print $ map (showRack twl) $ unsafeLookup hoagie two
   -- twl <- loadLex "twl-2to4"
   -- putStrLn "Loaded TWL-2to4."
 
